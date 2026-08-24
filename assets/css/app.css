@@ -1,0 +1,903 @@
+:root {
+    --forest: #173f32;
+    --forest-2: #245744;
+    --ink: #17231e;
+    --paper: #f3f0e6;
+    --cream: #fbfaf4;
+    --line: #d8d8ca;
+    --lime: #d8f36a;
+    --clay: #cf7655;
+    --muted: #657069;
+    --serif: "Newsreader", Georgia, serif;
+    --sans: "DM Sans", sans-serif
+}
+
+* {
+    box-sizing: border-box
+}
+
+html, body {
+    margin: 0;
+    min-height: 100%;
+    font-family: var(--sans);
+    color: var(--ink);
+    background: var(--paper)
+}
+
+button, input, textarea {
+    font: inherit
+}
+
+.grain {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 99;
+    opacity: .04;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.8'/%3E%3C/svg%3E")
+}
+
+.login-layout {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(420px, 1.18fr) minmax(420px, .82fr)
+}
+
+.brand-panel {
+    background: var(--forest);
+    color: #fff;
+    padding: 42px 6vw 46px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden
+}
+
+.brand-panel:after {
+    content: "";
+    position: absolute;
+    width: 62vw;
+    height: 62vw;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 50%;
+    left: 43%;
+    top: 50%;
+    box-shadow: 0 0 0 70px rgba(255, 255, 255, .025), 0 0 0 140px rgba(255, 255, 255, .018)
+}
+
+.brand-mark {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size:18px;
+    letter-spacing: -.02em;
+    position: relative;
+    z-index: 1
+}
+
+.brand-mark strong {
+    color: var(--lime)
+}
+
+.login-card-heading {
+    text-align: center
+}
+
+.login-card-heading .eyebrow {
+    margin: 0
+}
+
+.login-card .login-card-title {
+    font-size:27px;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    margin: 6px 0 0;
+    white-space: nowrap
+}
+
+.login-card-logo {
+    display: flex;
+    justify-content: center;
+    margin: 6px 0 0
+}
+
+.login-card-logo img {
+    height: 270px;
+    width: auto
+}
+
+.login-card-caption {
+    text-align: center;
+    margin-top: -2px
+}
+
+.brand-leaf {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50% 50% 50% 12%;
+    background: var(--lime);
+    color: var(--forest);
+    font-family: var(--serif);
+    font-size:26px;
+    font-weight: 600;
+    transform: rotate(-8deg)
+}
+
+.brand-copy {
+    max-width: 720px;
+    position: relative;
+    z-index: 1
+}
+
+.eyebrow {
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    font-size:14px;
+    font-weight: 700;
+    margin: 0 0 18px;
+    color: var(--forest-2)
+}
+
+.brand-copy .eyebrow, .light {
+    color: var(--lime)
+}
+
+.brand-copy h1 {
+    font: 500 clamp(50px, 5.7vw, 86px)/.96 var(--serif);
+    letter-spacing: -.045em;
+    margin: 0 0 30px
+}
+
+.brand-copy h1 em {
+    color: var(--lime);
+    font-weight: 500
+}
+
+.brand-copy>p:last-child {
+    max-width: 600px;
+    color: #d3ded7;
+    font-size:18px;
+    line-height: 1.7
+}
+
+.field-note {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    border-top: 1px solid rgba(255, 255, 255, .18);
+    padding-top: 20px;
+    max-width: 560px
+}
+
+.field-note>span {
+    font: 600 29px var(--serif);
+    color: var(--lime)
+}
+
+.field-note p {
+    font-size:16px;
+    line-height: 1.5;
+    margin: 0;
+    color: #c0cec5
+}
+
+.access-panel {
+    display: grid;
+    place-items: center;
+    padding: 48px;
+    background: var(--cream)
+}
+
+.login-card {
+    width: min(430px, 100%);
+    display: grid;
+    gap: 22px;
+    animation: rise .65s ease both
+}
+
+.login-card h2 {
+    font: 600 47px/1 var(--serif);
+    letter-spacing: -.03em;
+    margin: 0 0 12px
+}
+
+.muted {
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0
+}
+
+.field {
+    display: grid;
+    gap: 8px;
+    font-size:16px;
+    font-weight: 600
+}
+
+.field input, .field textarea {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #fff;
+    padding: 15px 16px;
+    outline: none;
+    transition: .2s
+}
+
+.field textarea {
+    resize: vertical
+}
+
+.field input:focus, .field textarea:focus {
+    border-color: var(--forest);
+    box-shadow: 0 0 0 3px rgba(23, 63, 50, .08)
+}
+
+.form-message {
+    min-height: 18px;
+    color: #a23b2a;
+    font-size:16px;
+    margin: -8px 0
+}
+
+.primary-button {
+    border: 0;
+    background: var(--forest);
+    color: #fff;
+    border-radius: 4px;
+    padding: 16px 18px;
+    display: flex;
+    justify-content: space-between;
+    cursor: pointer;
+    font-weight: 700;
+    transition: .2s
+}
+
+.primary-button:hover {
+    background: var(--forest-2);
+    transform: translateY(-1px)
+}
+
+.primary-button:disabled {
+    opacity: .65;
+    cursor: wait
+}
+
+.privacy-note {
+    text-align: center;
+    font-size:14px;
+    line-height: 1.5;
+    color: #8b918c
+}
+
+.dashboard {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 250px 1fr;
+    background: var(--paper)
+}
+
+.sidebar {
+    background: var(--forest);
+    color: #fff;
+    padding: 30px 20px 22px;
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 250px
+}
+
+.compact {
+    margin: 0 10px 48px;
+    font-size:17px
+}
+
+.compact .brand-leaf {
+    width: 34px;
+    height: 34px;
+    font-size:22px
+}
+
+.sidebar nav {
+    display: grid;
+    gap: 5px
+}
+
+.nav-label {
+    font-size:12px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: #8da79a;
+    margin: 24px 14px 8px
+}
+
+.nav-item, .logout-button {
+    border: 0;
+    background: transparent;
+    color: #b9cbc1;
+    text-align: left;
+    border-radius: 4px;
+    padding: 12px 14px;
+    cursor: pointer;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-size:16px
+}
+
+.nav-item:hover, .nav-item.active {
+    background: rgba(255, 255, 255, .09);
+    color: #fff
+}
+
+.nav-item.active {
+    box-shadow: inset 3px 0 var(--lime)
+}
+
+.logout-button {
+    margin-top: auto;
+    justify-content: space-between;
+    border-top: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 0;
+    padding-top: 20px
+}
+
+.workspace {
+    grid-column: 2;
+    min-width: 0
+}
+
+.topbar {
+    height: 96px;
+    padding: 0 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    background: rgba(251, 250, 244, .85);
+    backdrop-filter: blur(12px)
+}
+
+.topbar .eyebrow {
+    margin-bottom: 5px
+}
+
+.topbar h2 {
+    font: 600 28px var(--serif);
+    margin: 0
+}
+
+.user-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px
+}
+
+.user-chip>span {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    background: var(--lime);
+    border-radius: 50%;
+    font-weight: 700
+}
+
+.user-chip div {
+    display: grid
+}
+
+.user-chip strong {
+    font-size:15px
+}
+
+.user-chip small {
+    font-size:13px;
+    color: var(--muted)
+}
+
+.dashboard-content {
+    padding: 34px 42px 60px
+}
+
+.hero-card {
+    min-height: 250px;
+    background: var(--forest);
+    color: #fff;
+    padding: 38px 42px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    overflow: hidden;
+    position: relative
+}
+
+.hero-card:after {
+    content: "";
+    position: absolute;
+    width: 330px;
+    height: 330px;
+    border: 1px solid rgba(216, 243, 106, .25);
+    border-radius: 50%;
+    right: -80px;
+    top: -100px
+}
+
+.hero-card>div:first-child {
+    max-width: 600px;
+    position: relative;
+    z-index: 1
+}
+
+.hero-card h1 {
+    font: 500 clamp(38px, 4.2vw, 61px)/1 var(--serif);
+    margin: 0 0 16px
+}
+
+.hero-card h1 span {
+    color: var(--lime)
+}
+
+.hero-card p:last-child {
+    color: #bfd0c7;
+    line-height: 1.6
+}
+
+.hero-orbit {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: auto 70px auto;
+    align-items: center;
+    gap: 10px;
+    font-size:13px;
+    text-transform: uppercase;
+    letter-spacing: .12em
+}
+
+.hero-orbit i {
+    height: 1px;
+    background: var(--lime);
+    position: relative
+}
+
+.hero-orbit i:after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: -3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--lime)
+}
+
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin: 16px 0
+}
+
+.metric-grid article {
+    background: var(--cream);
+    border: 1px solid var(--line);
+    padding: 24px
+}
+
+.metric-grid article p {
+    font-size:15px;
+    color: var(--muted);
+    margin: 22px 0 5px
+}
+
+.metric-grid strong {
+    font: 600 44px var(--serif)
+}
+
+.metric-grid small {
+    display: block;
+    color: #89918b;
+    font-size:13px;
+    margin-top: 6px
+}
+
+.metric-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%
+}
+
+.green {
+    background: #dcebe3
+}
+
+.yellow {
+    background: #edf6bd
+}
+
+.clay {
+    background: #f2ddd5
+}
+
+.next-steps {
+    background: var(--cream);
+    border: 1px solid var(--line);
+    padding: 30px;
+    display: grid;
+    grid-template-columns: .8fr 1.2fr;
+    gap: 30px
+}
+
+.next-steps h3 {
+    font: 600 34px var(--serif);
+    margin: 0
+}
+
+.next-steps ol {
+    list-style: none;
+    margin: 0;
+    padding: 0
+}
+
+.next-steps li {
+    display: flex;
+    gap: 16px;
+    border-bottom: 1px solid var(--line);
+    padding: 14px 0;
+    color: #8c938e
+}
+
+.next-steps li>span {
+    font: 600 19px var(--serif)
+}
+
+.next-steps li div {
+    flex: 1
+}
+
+.next-steps li strong {
+    font-size:16px
+}
+
+.next-steps li p {
+    font-size:14px;
+    margin: 4px 0 0
+}
+
+.next-steps li.done {
+    color: var(--forest)
+}
+
+.next-steps li.current {
+    color: var(--clay)
+}
+
+[hidden] {
+    display: none !important
+}
+
+@keyframes rise {
+    from {
+        opacity: 0;
+        transform: translateY(16px)
+    }
+
+    to {
+        opacity: 1;
+        transform: none
+    }
+}
+
+@media(max-width:900px) {
+    .login-layout {
+        grid-template-columns: 1fr
+    }
+
+    .brand-panel {
+        min-height: 43vh;
+        padding: 28px
+    }
+
+    .brand-copy h1 {
+        font-size:48px
+    }
+
+    .field-note {
+        display: none
+    }
+
+    .access-panel {
+        padding: 38px 24px
+    }
+
+    .login-card-logo img {
+        height: 200px
+    }
+
+    .dashboard {
+        grid-template-columns: 72px 1fr
+    }
+
+    .sidebar {
+        width: 72px;
+        padding: 24px 10px
+    }
+
+    .sidebar .brand-mark span:last-child, .nav-item:not(.active) {
+        font-size: 0
+    }
+
+    .compact {
+        margin: 0 auto 40px
+    }
+
+    .nav-label, .logout-button {
+        display: none
+    }
+
+    .nav-item {
+        justify-content: center;
+        font-size:19px !important;
+        padding: 13px
+    }
+
+    .workspace {
+        grid-column: 2
+    }
+
+    .topbar, .dashboard-content {
+        padding-left: 22px;
+        padding-right: 22px
+    }
+
+    .metric-grid {
+        grid-template-columns: 1fr
+    }
+
+    .next-steps {
+        grid-template-columns: 1fr
+    }
+
+    .hero-orbit {
+        display: none
+    }
+}
+
+@media(max-width:520px) {
+    /* En móvil solo cabe el card de credenciales sin scroll: se oculta el
+       panel de marca (hero oscuro con el eslogan) y .login-layout, al quedar
+       con un solo hijo en su única fila, lo estira para llenar el 100vh y
+       centrar el card vertical y horizontalmente. */
+    .brand-panel {
+        display: none
+    }
+
+    .login-card .login-card-title {
+        font-size:22px
+    }
+
+    .login-card-logo img {
+        height: 150px
+    }
+
+    .topbar {
+        height: 80px
+    }
+
+    .user-chip div {
+        display: none
+    }
+
+    .dashboard-content {
+        padding: 18px 14px
+    }
+
+    .hero-card {
+        padding: 28px 24px
+    }
+
+    .hero-card h1 {
+        font-size:40px
+    }
+}
+
+.icon {
+    display: inline-block;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    vertical-align: middle;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.7;
+    overflow: visible
+}
+
+.icon-plus, .icon-check, .icon-close {
+    stroke-width: 1.9
+}
+
+.nav-item .icon, .logout-button .icon {
+    width: 17px;
+    height: 17px
+}
+
+.sidebar-toggle .icon {
+    width: 13px;
+    height: 13px;
+    stroke-width: 2
+}
+
+.sidebar-toggle .icon.chevron-left {
+    transform: rotate(90deg)
+}
+
+.sidebar-toggle .icon.chevron-right {
+    transform: rotate(-90deg)
+}
+
+.dialog-close .icon {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.8
+}
+
+.role-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px
+}
+
+.role-back .icon {
+    width: 14px;
+    height: 14px;
+    stroke-width: 1.9
+}
+
+.table-action .icon, .text-button .icon {
+    width: 14px;
+    height: 14px
+}
+
+.icon-button .icon {
+    width: 16px;
+    height: 16px
+}
+
+.summary-hero-actions .icon, .summary-activity>header .icon {
+    width: 13px;
+    height: 13px
+}
+
+.summary-metrics .primary i .icon {
+    width: 24px;
+    height: 24px
+}
+
+.summary-shortcuts button>span .icon {
+    width: 18px;
+    height: 18px
+}
+
+.empty-row td>span .icon {
+    width: 20px;
+    height: 20px
+}
+
+.visit-empty>span .icon {
+    width: 26px;
+    height: 26px
+}
+
+.visit-list-empty span .icon {
+    width: 24px;
+    height: 24px
+}
+
+.visit-search .icon {
+    width: 15px;
+    height: 15px
+}
+
+.visit-filter-actions button .icon {
+    width: 14px;
+    height: 14px
+}
+
+.visit-date-range button .icon {
+    width: 14px;
+    height: 14px
+}
+
+.visit-lot-counters i .icon, .visit-advanced-filters>summary i .icon {
+    width: 15px;
+    height: 15px
+}
+
+.activity-state .icon {
+    width: 13px;
+    height: 13px
+}
+
+.permission-shortcuts button .icon {
+    width: 14px;
+    height: 14px
+}
+
+.farm-location-cell .icon, .farm-detail-header p .icon {
+    width: 12px;
+    height: 12px;
+    margin-right: 4px;
+    color: var(--muted)
+}
+
+.assignment-table-toolbar label .icon {
+    width: 14px;
+    height: 14px
+}
+
+.icon-enhanced {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 7px
+}
+
+.icon-enhanced[hidden] {
+    display: none !important
+}
+
+.icon-enhanced>span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px
+}
+
+.icon-enhanced>.icon, .icon-enhanced>span>.icon {
+    width: 14px;
+    height: 14px;
+    flex: none
+}
+
+.primary-button.icon-enhanced>.icon, .primary-button.icon-enhanced>span>.icon {
+    stroke-width: 2
+}
+
+.table-action.icon-enhanced {
+    white-space: nowrap
+}
+
+.table-action.icon-enhanced .icon {
+    width: 13px;
+    height: 13px
+}
+
+.table-action.icon-enhanced.danger .icon {
+    stroke-width: 1.9
+}
+
+.visit-heading-mark strong {
+    display: grid;
+    place-items: center
+}
+
+.visit-heading-mark strong .icon {
+    width: 25px;
+    height: 25px;
+    stroke-width: 1.8
+}
+
+.summary-alert-mark .icon {
+    width: 17px;
+    height: 17px;
+    stroke-width: 1.9
+}

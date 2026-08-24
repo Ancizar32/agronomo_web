@@ -6,14 +6,13 @@ use function InduSoft\errorUserId;
 use function InduSoft\mfex;
 use function InduSoft\rlog;
 
-date_default_timezone_set("America/Lima");
-define('SERVER_NAME', $_SERVER['SERVER_NAME']);
-// exit($_SERVER['SERVER_NAME']);
-if (SERVER_NAME == 'hot-properly-penguin.ngrok-free.app') {
-    define('RUTA_ROOT', $_SERVER['DOCUMENT_ROOT'] . '/AgroSoft_Agronomo');
-} else {
-    define('RUTA_ROOT', $_SERVER['DOCUMENT_ROOT']);
-}
+date_default_timezone_set("America/Bogota");
+define('SERVER_NAME', $_SERVER['SERVER_NAME'] ?? 'localhost');
+
+// El proyecto puede publicarse como raíz de un dominio o dentro de
+// /myApp/AgroSoft_Agronomo. Resolver desde este archivo evita depender del
+// DocumentRoot configurado por Apache, Docker, ngrok o Hostinger.
+define('RUTA_ROOT', realpath(__DIR__ . '/..'));
 require_once(RUTA_ROOT . '/config/structure.php');
 require_once(RUTA_ROOT . '/config/dbconfig.php');
 define('RUTA_MVC', dirname(RUTA_ROOT, 1) . '/application/');
@@ -97,8 +96,11 @@ class Global_class
             ]);
             return $query->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {
-            echo $e->getPrevious();
-            var_dump($e->getMessage());
+            // Antes: var_dump($e->getMessage()) imprimía texto crudo en la
+            // respuesta HTTP, rompiendo el JSON que espera cada cliente
+            // (web y móvil). Se relanza para que el router la atrape y
+            // responda con un JSON de error legible.
+            throw $e;
         }
     }
 
@@ -109,7 +111,7 @@ class Global_class
             $this->statement->execute($parameters);
             return $this->statement->rowcount();
         } catch (PDOException $e) {
-            var_dump($e->getMessage());
+            throw $e;
         }
     }
 
@@ -119,7 +121,7 @@ class Global_class
             $this->prepare_statement($query, $parameters);
             return $this->statement->fetchall(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {
-            var_dump($e->getMessage());
+            throw $e;
         }
     }
 
@@ -132,9 +134,9 @@ class Global_class
             $this->dbh2->commit();
             return $this->statement->rowcount();
         } catch (PDOException $e) {
-            var_dump($e->getMessage());
             $this->statement->rollBack();
             $this->dbh2->rollBack();
+            throw $e;
         }
     }
 
@@ -144,7 +146,7 @@ class Global_class
             $this->prepare_statement_utf($query, $parameters);
             return $this->statement->fetchall(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {
-            var_dump($e->getMessage());
+            throw $e;
         }
     }
 

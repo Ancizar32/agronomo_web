@@ -1,0 +1,6 @@
+#open-profile-button{cursor:pointer;text-align:left}
+.signature-pad-wrap{border:1px dashed var(--line);border-radius:var(--radius-md,8px);background:#fff;overflow:hidden}
+#profile-signature-canvas{display:block;width:100%;height:160px;touch-action:none;cursor:crosshair}
+.signature-pad-actions{display:flex;gap:9px;margin-top:8px}
+.signature-pad-actions .file-button{display:inline-flex;align-items:center;cursor:pointer}
+.signature-hint{display:block;margin-top:6px;color:var(--muted);font-size:13px}

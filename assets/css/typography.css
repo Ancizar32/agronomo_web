@@ -1,0 +1,73 @@
+:root {
+  --type-xs: 13px;
+  --type-sm: 14px;
+  --type-body: 16px;
+  --type-lead: 18px;
+  --type-h4: 21px;
+  --type-h3: 25px;
+  --type-h2: 37px;
+  --type-h1: 48px;
+  --line-body: 1.5;
+  --line-heading: 1.08;
+}
+
+html { font-size:18px; }
+body { font-family:var(--sans); font-size:var(--type-body); line-height:var(--line-body); }
+button,input,select,textarea,option { font-family:var(--sans); font-size:var(--type-body); line-height:1.35; }
+p,li,dt,dd,label { font-size:var(--type-body); }
+small { font-size:var(--type-sm); }
+
+h1,h2,h3,h4,.module-heading h1,.role-page-heading h1,.formula-editor h1,
+.entity-dialog h2,.detail-dialog-shell h2,.forced-password-dialog h2,
+.farm-detail-header h2,.lot-heading h3,.next-steps h3,.role-grid h3,
+.permission-preview h3,.empty-row strong {
+  font-family:var(--serif);
+  font-weight:600;
+  line-height:var(--line-heading);
+}
+
+.module-heading h1,.role-page-heading h1,.formula-editor h1 { font-size:var(--type-h1); }
+.entity-dialog h2,.detail-dialog-shell h2,.forced-password-dialog h2,.farm-detail-header h2 { font-size:var(--type-h2); }
+.lot-heading h3,.next-steps h3,.role-grid h3,.permission-preview h3,.farm-empty h3 { font-size:var(--type-h3); }
+.empty-row strong,.formula-group header strong,.farm-list-item strong { font-size:var(--type-h4); }
+
+.eyebrow,.nav-label,.data-table th,.assignment-table-wrap th {
+  font-family:var(--sans);
+  font-size:var(--type-xs);
+  font-weight:700;
+  line-height:1.3;
+}
+
+.field,.check-field,.cert-grid label { font-size:var(--type-body); }
+.field > span,.field label { font-size:15px; font-weight:700; }
+.primary-button,.secondary-button,.icon-button,.admin-tab,.table-action,.text-button,
+.role-back,.formula-editor header button,.formula-groups-heading button,.formula-group-remove {
+  font-family:var(--sans);
+  font-size:15px;
+  font-weight:700;
+}
+
+.data-table td,.assignment-table-wrap td,.permission-matrix table { font-family:var(--sans); font-size:15px; }
+.data-table td strong,.data-table .catalog-parent strong { font-family:var(--sans); font-size:15px; line-height:1.35; }
+.data-table .catalog-parent small { font-family:var(--sans); font-size:var(--type-xs); }
+.data-table th,.permission-matrix th,.assignment-table-wrap th { font-size:var(--type-xs); }
+.status-pill,.role-pill,.catalog-code,.username-code,.role-code { font-size:var(--type-sm); }
+.dataTables_wrapper,.dataTables_filter input,.dataTables_length select,.dataTables_info,
+.dataTables_paginate,.dataTables_paginate .page-link,.dataTables_paginate .paginate_button {
+  font-family:var(--sans)!important;
+  font-size:var(--type-sm)!important;
+}
+
+.select2-container,.select2-dropdown,.select2-search__field,.select2-results__option,
+.select2-selection__rendered,.select2-selection__choice {
+  font-family:var(--sans)!important;
+  font-size:var(--type-body)!important;
+}
+
+.swal2-popup { font-family:var(--sans)!important; font-size:var(--type-body)!important; }
+.swal2-title { font-family:var(--serif)!important; font-size:var(--type-h2)!important; line-height:var(--line-heading)!important; }
+.swal2-html-container,.swal2-confirm,.swal2-cancel { font-family:var(--sans)!important; font-size:var(--type-body)!important; }
+
+@media(max-width:520px) {
+  :root { --type-h1:41px; --type-h2:33px; --type-h3:24px; }
+}

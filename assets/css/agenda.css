@@ -1,0 +1,39 @@
+.status-pill.programada{background:#e8eef2;color:#2c5a7a}
+.status-pill.en-curso{background:#edf6bd;color:#7a6a1c}
+.status-pill.completada{background:#e7f2d5;color:#3f6429}
+.status-pill.cancelada{background:#f2ddd5;color:#8d3c2c}
+.agenda-status-select{border:1px solid var(--line);border-radius:999px;padding:6px 22px 6px 10px;font-size:13px;font-weight:700;cursor:pointer}
+.agenda-status-select.programada{background:#e8eef2;color:#2c5a7a}
+.agenda-status-select.en-curso{background:#edf6bd;color:#7a6a1c}
+.agenda-status-select.completada{background:#e7f2d5;color:#3f6429}
+.agenda-status-select.cancelada{background:#f2ddd5;color:#8d3c2c}
+.agenda-filter-bar{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px}
+.agenda-filter-bar label{display:grid;gap:6px;font-size:14px;font-weight:600;color:var(--muted)}
+.agenda-filter-bar select,.agenda-filter-bar input{border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:#fff;font:inherit}
+dialog.entity-dialog.agenda-dialog{width:min(620px,calc(100% - 28px))}
+
+/* Mismo estilo de select2 que el wizard de "Nuevo predio" (wizard.css):
+   borde suave, radio grande, anillo lima al enfocar y resaltado forest en
+   la opción activa — igual look aquí en el diálogo y en la barra de filtros. */
+.agenda-dialog .select2-container{width:100%!important;min-width:0}
+.agenda-dialog .select2-container .select2-selection--single{height:49px;border:1px solid rgba(23,63,50,.16);border-radius:var(--radius-md);background:#fff;outline:0;transition:.2s}
+.agenda-dialog .select2-container .select2-selection--single .select2-selection__rendered{height:47px;padding:0 42px 0 15px;color:var(--ink);font-size:16px;line-height:47px;white-space:nowrap;text-overflow:ellipsis}
+.agenda-dialog .select2-container .select2-selection--single .select2-selection__arrow{top:10px;right:10px}
+.agenda-dialog .select2-container--focus .select2-selection--single,.agenda-dialog .select2-container--open .select2-selection--single{border-color:var(--forest-2);box-shadow:0 0 0 4px rgba(216,243,106,.3)}
+.agenda-dialog .select2-dropdown{overflow:hidden;border:1px solid rgba(23,63,50,.16);border-radius:12px;background:#fff;box-shadow:0 18px 42px rgba(23,63,50,.18)}
+.agenda-dialog .select2-search--dropdown{padding:10px}
+.agenda-dialog .select2-search--dropdown .select2-search__field{padding:10px 12px;border:1px solid var(--line);border-radius:9px;outline:0}
+.agenda-dialog .select2-results__option{padding:10px 14px;font-size:16px}
+.agenda-dialog .select2-results__option--highlighted[aria-selected]{background:var(--forest);color:#fff}
+
+.agenda-filter-bar .select2-container{width:100%!important;min-width:180px}
+.agenda-filter-bar .select2-container .select2-selection--single{height:39px;border:1px solid rgba(23,63,50,.16);border-radius:8px;background:#fff;outline:0;transition:.2s}
+.agenda-filter-bar .select2-container .select2-selection--single .select2-selection__rendered{height:37px;padding:0 36px 0 12px;color:var(--ink);font-size:15px;line-height:37px}
+.agenda-filter-bar .select2-container .select2-selection--single .select2-selection__arrow{top:5px;right:8px}
+.agenda-filter-bar .select2-container .select2-selection__clear{margin-right:6px}
+.agenda-filter-bar .select2-container--focus .select2-selection--single,.agenda-filter-bar .select2-container--open .select2-selection--single{border-color:var(--forest-2);box-shadow:0 0 0 4px rgba(216,243,106,.3)}
+.agenda-filter-bar .select2-dropdown{overflow:hidden;border:1px solid rgba(23,63,50,.16);border-radius:12px;background:#fff;box-shadow:0 18px 42px rgba(23,63,50,.18)}
+.agenda-filter-bar .select2-search--dropdown{padding:10px}
+.agenda-filter-bar .select2-search--dropdown .select2-search__field{padding:10px 12px;border:1px solid var(--line);border-radius:9px;outline:0}
+.agenda-filter-bar .select2-results__option{padding:10px 14px;font-size:16px}
+.agenda-filter-bar .select2-results__option--highlighted[aria-selected]{background:var(--forest);color:#fff}

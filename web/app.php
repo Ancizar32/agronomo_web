@@ -100,7 +100,7 @@ $assetVersion = (string) max(filemtime(dirname(__DIR__) . '/assets/js/app.js'), 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="../lib/DataTables/datatables.min.css">
+    <link rel="stylesheet" href="lib/DataTables/datatables.min.css">
     <link rel="stylesheet" href="assets/css/app.css?v=<?= $assetVersion ?>">
     <link rel="stylesheet" href="assets/css/admin.css?v=<?= $assetVersion ?>">
     <link rel="stylesheet" href="assets/css/farms.css?v=<?= $assetVersion ?>">
@@ -109,7 +109,7 @@ $assetVersion = (string) max(filemtime(dirname(__DIR__) . '/assets/js/app.js'), 
     <link rel="stylesheet" href="assets/css/wizard.css?v=<?= $assetVersion ?>">
     <link rel="stylesheet" href="assets/css/inputs-formulas.css?v=<?= $assetVersion ?>">
     <link rel="stylesheet" href="assets/css/certifications.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="../lib/select2/css/select2.min.css">
+    <link rel="stylesheet" href="lib/select2/css/select2.min.css">
     <link rel="stylesheet" href="assets/css/visits.css?v=<?= $assetVersion ?>">
     <link rel="stylesheet" href="assets/css/team.css?v=<?= $assetVersion ?>">
     <link rel="stylesheet" href="assets/css/farms-scale.css?v=<?= $assetVersion ?>">
@@ -119,12 +119,12 @@ $assetVersion = (string) max(filemtime(dirname(__DIR__) . '/assets/js/app.js'), 
     <link rel="stylesheet" href="assets/css/build-query.css?v=<?= $assetVersion ?>">
     <link rel="stylesheet" href="assets/css/notifications.css?v=<?= $assetVersion ?>">
     <link rel="stylesheet" href="assets/css/typography.css?v=<?= $assetVersion ?>">
-    <script src="../lib/js/jquery-2.1.4.min.js" defer></script>
-    <script src="../lib/DataTables/datatables.min.js" defer></script>
-    <script src="../lib/select2/js/select2.min.js" defer></script>
-    <script src="../lib/sweetalert2.all.js" defer></script>
-    <script src="../lib/jspdf.umd.min.js" defer></script>
-    <script src="../lib/jspdf.plugin.autotable.min.js" defer></script>
+    <script src="lib/js/jquery-2.1.4.min.js" defer></script>
+    <script src="lib/DataTables/datatables.min.js" defer></script>
+    <script src="lib/select2/js/select2.min.js" defer></script>
+    <script src="lib/sweetalert2.all.js" defer></script>
+    <script src="lib/jspdf.umd.min.js" defer></script>
+    <script src="lib/jspdf.plugin.autotable.min.js" defer></script>
     <script src="assets/js/icons.js?v=<?= $assetVersion ?>" defer></script>
     <script src="assets/js/app.js?v=<?= $assetVersion ?>" defer></script>
     <script src="assets/js/admin.js?v=<?= $assetVersion ?>" defer></script>

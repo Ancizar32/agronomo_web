@@ -1,16 +1,30 @@
 <?php
 class Database
 {
-    private $db_name = "u902320992_agronomos";
-    private $username = "u902320992_agronomos_db";
-    private $password = "AgroSoft_db13579";
-
-
-    // private $db_name = "u902320992_collect_db";
-    // private $username = "u902320992_collector";
-    // private $password = "AgroSoft_db13579";
+    private $db_name;
+    private $username;
+    private $password;
 
     public $conn;
+
+    // Mismo interruptor que ya usa dbConnection()/dbConnection2() para el
+    // host (getenv('APP_ENV') === 'docker'): en el contenedor local usa las
+    // credenciales de Docker; en cualquier otro lado (producción) usa las
+    // reales. Así ya no hay que comentar/descomentar credenciales a mano
+    // antes de cada despliegue — y de paso se evita el riesgo de subir por
+    // error las credenciales locales a producción.
+    public function __construct()
+    {
+        if (getenv('APP_ENV') === 'docker') {
+            $this->db_name = "u902320992_agronomo";
+            $this->username = "root";
+            $this->password = "root";
+        } else {
+            $this->db_name = "u902320992_agronomos";
+            $this->username = "u902320992_agronomos_db";
+            $this->password = "AgroSoft_db13579";
+        }
+    }
 
     //Se crea el método que permite realizar la conexión a la b.d 
     public function dbConnection()

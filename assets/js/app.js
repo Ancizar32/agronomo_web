@@ -36,6 +36,15 @@ if (window.Swal && !Swal.__dialogAwarePatch) {
 // era inconsistente con el resto de confirmaciones de la app).
 function notifyResult(text, success = false, icon) {
   if (!text) return;
+  // Si SweetAlert2 no cargó (script bloqueado, lento, o llamado antes de
+  // tiempo), Swal.fire lanzaba una excepción no controlada aquí — como esto
+  // suele llamarse desde un catch de carga de datos, la excepción cortaba
+  // ese flujo a la mitad y dejaba la tabla pegada en su placeholder de
+  // "Cargando..." para siempre, sin ni siquiera mostrar el mensaje real.
+  if (typeof window.Swal === "undefined") {
+    console.error(`[notifyResult] Swal no está disponible: ${text}`);
+    return;
+  }
   Swal.fire({
     icon: icon || (success ? "success" : "error"),
     title: success ? "Listo" : "Error",

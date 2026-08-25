@@ -1,7 +1,7 @@
 <?php
 // Sin esto, el navegador podía servir app.php desde su caché en un F5
-// normal — como el HTML trae el $assetVersion (y por tanto las URLs de JS/CSS
-// con ?v=...) ya resuelto en el momento en que se generó, una copia en caché
+// normal — como el HTML trae las versiones de JS/CSS/imágenes (y por tanto
+// las URLs con ?v=...) ya resueltas en el momento en que se generó, una copia en caché
 // del documento apunta a versiones viejas de los assets aunque estos ya
 // hayan cambiado en el servidor. Solo Ctrl+Shift+R (que ignora la caché por
 // completo) forzaba a pedir un app.php fresco. Estas cabeceras obligan a
@@ -10,7 +10,16 @@
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Expires: 0');
-$assetVersion = (string) max(filemtime(dirname(__DIR__) . '/assets/js/app.js'), filemtime(dirname(__DIR__) . '/assets/js/admin.js'), filemtime(dirname(__DIR__) . '/assets/js/farms.js'), filemtime(dirname(__DIR__) . '/assets/js/crops.js'), filemtime(dirname(__DIR__) . '/assets/js/inputs-formulas.js'), filemtime(dirname(__DIR__) . '/assets/js/recommendations.js'), filemtime(dirname(__DIR__) . '/assets/js/certifications.js'), filemtime(dirname(__DIR__) . '/assets/js/visits.js'), filemtime(dirname(__DIR__) . '/assets/js/team.js'), filemtime(dirname(__DIR__) . '/assets/css/app.css'), filemtime(dirname(__DIR__) . '/assets/css/admin.css'), filemtime(dirname(__DIR__) . '/assets/css/inputs-formulas.css'), filemtime(dirname(__DIR__) . '/assets/css/farms.css'), filemtime(dirname(__DIR__) . '/assets/css/farms-scale.css'), filemtime(dirname(__DIR__) . '/assets/css/certifications.css'), filemtime(dirname(__DIR__) . '/assets/css/polish.css'), filemtime(dirname(__DIR__) . '/assets/css/sidebar.css'), filemtime(dirname(__DIR__) . '/assets/css/wizard.css'), filemtime(dirname(__DIR__) . '/assets/css/typography.css'), filemtime(dirname(__DIR__) . '/assets/css/visits.css'), filemtime(dirname(__DIR__) . '/assets/css/team.css'), filemtime(dirname(__DIR__) . '/assets/css/summary.css'), filemtime(dirname(__DIR__) . '/assets/js/profile.js'), filemtime(dirname(__DIR__) . '/assets/css/profile.css'), filemtime(dirname(__DIR__) . '/assets/js/icons.js'), filemtime(dirname(__DIR__) . '/assets/js/visit-report.js'), filemtime(dirname(__DIR__) . '/assets/js/agenda.js'), filemtime(dirname(__DIR__) . '/assets/css/agenda.css'), filemtime(dirname(__DIR__) . '/assets/js/reports-excel.js'), filemtime(dirname(__DIR__) . '/assets/css/build-query.css'), filemtime(dirname(__DIR__) . '/assets/js/build-query.js'), filemtime(dirname(__DIR__) . '/assets/js/notifications.js'), filemtime(dirname(__DIR__) . '/assets/css/notifications.css'));
+// Antes había UN solo $assetVersion (máximo de todos los .js y .css juntos,
+// en una lista mantenida a mano): tocar un solo archivo CSS invalidaba la
+// caché de los ~15 <script> también, forzando a volver a descargar JS que
+// no había cambiado (y viceversa) — de ahí la lentitud al recargar tras
+// cada despliegue. Ahora cada tipo de asset tiene su propia versión,
+// calculada escaneando su carpeta (glob), así un archivo nuevo queda
+// cubierto solo sin tener que agregarlo a mano a esta lista.
+$jsVersion = (string) max(array_map('filemtime', glob(dirname(__DIR__) . '/assets/js/*.js')) ?: [0]);
+$cssVersion = (string) max(array_map('filemtime', glob(dirname(__DIR__) . '/assets/css/*.css')) ?: [0]);
+$imgVersion = (string) max(array_map('filemtime', glob(dirname(__DIR__) . '/assets/img/*')) ?: [0]);
 ?>
 <!doctype html>
 <html lang="es">
@@ -20,7 +29,7 @@ $assetVersion = (string) max(filemtime(dirname(__DIR__) . '/assets/js/app.js'), 
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#173f32">
     <title>AgroSoft Agrónomo</title>
-    <link rel="icon" type="image/png" href="assets/img/favicon.png?v=<?= $assetVersion ?>">
+    <link rel="icon" type="image/png" href="assets/img/favicon.png?v=<?= $imgVersion ?>">
     <script>
         // Se ejecuta de forma síncrona durante el parseo del <head>, antes de que
         // el navegador pinte el <body> — por eso puede decidir "hay sesión" sin
@@ -102,46 +111,46 @@ $assetVersion = (string) max(filemtime(dirname(__DIR__) . '/assets/js/app.js'), 
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="lib/DataTables/datatables.min.css">
-    <link rel="stylesheet" href="assets/css/app.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/admin.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/farms.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/polish.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/wizard.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/inputs-formulas.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/certifications.css?v=<?= $assetVersion ?>">
+    <link rel="stylesheet" href="assets/css/app.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/admin.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/farms.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/polish.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/wizard.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/inputs-formulas.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/certifications.css?v=<?= $cssVersion ?>">
     <link rel="stylesheet" href="lib/select2/css/select2.min.css">
-    <link rel="stylesheet" href="assets/css/visits.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/team.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/farms-scale.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/summary.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/profile.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/agenda.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/build-query.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/notifications.css?v=<?= $assetVersion ?>">
-    <link rel="stylesheet" href="assets/css/typography.css?v=<?= $assetVersion ?>">
+    <link rel="stylesheet" href="assets/css/visits.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/team.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/farms-scale.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/summary.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/profile.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/agenda.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/build-query.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/notifications.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/typography.css?v=<?= $cssVersion ?>">
     <script src="lib/js/jquery-2.1.4.min.js" defer></script>
     <script src="lib/DataTables/datatables.min.js" defer></script>
     <script src="lib/select2/js/select2.min.js" defer></script>
     <script src="lib/sweetalert2.all.js" defer></script>
     <script src="lib/jspdf.umd.min.js" defer></script>
     <script src="lib/jspdf.plugin.autotable.min.js" defer></script>
-    <script src="assets/js/icons.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/app.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/admin.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/farms.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/crops.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/inputs-formulas.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/recommendations.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/certifications.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/visits.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/visit-report.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/team.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/profile.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/agenda.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/reports-excel.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/build-query.js?v=<?= $assetVersion ?>" defer></script>
-    <script src="assets/js/notifications.js?v=<?= $assetVersion ?>" defer></script>
+    <script src="assets/js/icons.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/app.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/admin.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/farms.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/crops.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/inputs-formulas.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/recommendations.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/certifications.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/visits.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/visit-report.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/team.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/profile.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/agenda.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/reports-excel.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/build-query.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/notifications.js?v=<?= $jsVersion ?>" defer></script>
 </head>
 
 <body>
@@ -301,7 +310,7 @@ $assetVersion = (string) max(filemtime(dirname(__DIR__) . '/assets/js/app.js'), 
             <circle cx="12" cy="19" r="2" />
         </symbol>
     </svg>
-    <div id="boot-loader" aria-hidden="true"><img src="assets/img/logo.png?v=<?= $assetVersion ?>" alt="" class="boot-logo-img"></div>
+    <div id="boot-loader" aria-hidden="true"><img src="assets/img/logo.png?v=<?= $imgVersion ?>" alt="" class="boot-logo-img"></div>
     <div class="grain" aria-hidden="true"></div>
     <main id="login-view" class="login-layout">
         <section class="brand-panel">
@@ -321,7 +330,7 @@ $assetVersion = (string) max(filemtime(dirname(__DIR__) . '/assets/js/app.js'), 
                     <p class="eyebrow">Acceso al sistema</p>
                     <h2 class="login-card-title">Bienvenido de nuevo</h2>
                 </div>
-                <div class="login-card-logo"><img src="assets/img/logo.png?v=<?= $assetVersion ?>" alt="AgroSoft Agrónomo"></div>
+                <div class="login-card-logo"><img src="assets/img/logo.png?v=<?= $imgVersion ?>" alt="AgroSoft Agrónomo"></div>
                 <p class="muted login-card-caption">Ingresa con las credenciales asignadas por tu organización.</p>
                 <label class="field"><span>Usuario</span><input id="user" autocomplete="username" required placeholder="tu.usuario"></label>
                 <label class="field"><span>Contraseña</span><input id="password" type="password" autocomplete="current-password" required placeholder="••••••••"></label>

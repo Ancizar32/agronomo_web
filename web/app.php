@@ -20,6 +20,7 @@ $assetVersion = (string) max(filemtime(dirname(__DIR__) . '/assets/js/app.js'), 
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#173f32">
     <title>AgroSoft Agrónomo</title>
+    <link rel="icon" type="image/png" href="assets/img/favicon.png?v=<?= $assetVersion ?>">
     <script>
         // Se ejecuta de forma síncrona durante el parseo del <head>, antes de que
         // el navegador pinte el <body> — por eso puede decidir "hay sesión" sin

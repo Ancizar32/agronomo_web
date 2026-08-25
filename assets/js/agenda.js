@@ -84,7 +84,7 @@ function agendaDataTable() {
     columnDefs: [{targets: 6, orderable: false, searchable: false}],
     dom: '<"dt-top"lf>rt<"dt-bottom"ip>',
     language: {
-      emptyTable: 'No hay visitas programadas',
+      emptyTable: 'No hay visitas programadas para el filtro actual',
       zeroRecords: 'No se encontraron programaciones',
       info: 'Mostrando _START_ a _END_ de _TOTAL_',
       infoEmpty: '0 programaciones',
@@ -166,25 +166,27 @@ function renderAgendaTable() {
   const canEdit = agendaCan('agenda.editar');
   const body = document.querySelector('#agenda-table-body');
   const items = agendaFilteredItems();
-  if (!items.length) {
-    body.innerHTML = '<tr class="empty-row"><td colspan="7"><strong>No hay visitas programadas para el filtro actual</strong></td></tr>';
-  } else {
-    body.innerHTML = items.map((item) => {
-      const estadoCell = canEdit
-        ? `<select class="agenda-status-select ${(AGENDA_ESTADOS[item.estado] || {}).css || ''}" data-agenda-status="${escapeAgendaHtml(item.id)}">${Object.entries(AGENDA_ESTADOS).map(([value, info]) => `<option value="${value}"${value === item.estado ? ' selected' : ''}>${info.label}</option>`).join('')}</select>`
-        : agendaEstadoBadge(item.estado);
-      const actions = canEdit ? `<button class="table-action" data-edit-agenda="${escapeAgendaHtml(item.id)}">Editar</button>` : '';
-      return `<tr>
-        <td>${escapeAgendaHtml(formatAgendaDateTime(item.fecha_inicio))}</td>
-        <td>${escapeAgendaHtml(item.finca_nombre || 'Sin nombre')}</td>
-        <td>${escapeAgendaHtml(item.tecnico_nombre || 'Sin técnico')}</td>
-        <td>${escapeAgendaHtml(item.objetivo)}</td>
-        <td>${Number(item.duracion_minutos || 60)} min</td>
-        <td>${estadoCell}</td>
-        <td><div class="table-actions">${actions}</div></td>
-      </tr>`;
-    }).join('');
-  }
+  // Antes se insertaba una fila manual <td colspan> cuando no había
+  // resultados y DESPUÉS se inicializaba DataTables sobre ella — DataTables
+  // trataba esa fila como un registro real, buscaba una celda en la columna
+  // 6 (que no existe, por el colspan) y reventaba con
+  // "Cannot set properties of undefined (setting '_DT_CellIndex')". Con un
+  // tbody vacío, DataTables muestra su propio emptyTable sin problema.
+  body.innerHTML = items.map((item) => {
+    const estadoCell = canEdit
+      ? `<select class="agenda-status-select ${(AGENDA_ESTADOS[item.estado] || {}).css || ''}" data-agenda-status="${escapeAgendaHtml(item.id)}">${Object.entries(AGENDA_ESTADOS).map(([value, info]) => `<option value="${value}"${value === item.estado ? ' selected' : ''}>${info.label}</option>`).join('')}</select>`
+      : agendaEstadoBadge(item.estado);
+    const actions = canEdit ? `<button class="table-action" data-edit-agenda="${escapeAgendaHtml(item.id)}">Editar</button>` : '';
+    return `<tr>
+      <td>${escapeAgendaHtml(formatAgendaDateTime(item.fecha_inicio))}</td>
+      <td>${escapeAgendaHtml(item.finca_nombre || 'Sin nombre')}</td>
+      <td>${escapeAgendaHtml(item.tecnico_nombre || 'Sin técnico')}</td>
+      <td>${escapeAgendaHtml(item.objetivo)}</td>
+      <td>${Number(item.duracion_minutos || 60)} min</td>
+      <td>${estadoCell}</td>
+      <td><div class="table-actions">${actions}</div></td>
+    </tr>`;
+  }).join('');
   body.querySelectorAll('[data-edit-agenda]').forEach((button) => button.addEventListener('click', () => {
     const item = agendaState.items.find((row) => row.id === button.dataset.editAgenda);
     if (item) openAgendaDialog(item);

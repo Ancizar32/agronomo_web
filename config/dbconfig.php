@@ -1,9 +1,9 @@
 <?php
 class Database
 {
-    private $db_name = "u902320992_agronomo";
-    private $username = "root";
-    private $password = "root";
+    private $db_name = "u902320992_agronomos";
+    private $username = "u902320992_agronomos_db";
+    private $password = "AgroSoft_db13579";
 
 
     // private $db_name = "u902320992_collect_db";

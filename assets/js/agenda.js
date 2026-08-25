@@ -250,10 +250,8 @@ function openAgendaDialog(item = null) {
   document.querySelector('#agenda-estado').value = item?.estado || 'PROGRAMADA';
   document.querySelector('#agenda-dialog-message').textContent = '';
   if (window.jQuery?.fn?.select2) {
-    [['#agenda-finca', 'Selecciona una finca…'], ['#agenda-tecnico', 'Selecciona un técnico…']].forEach(([selector, placeholder]) => {
-      const $select = window.jQuery(selector);
-      if ($select.hasClass('select2-hidden-accessible')) $select.select2('destroy');
-      $select.select2({dropdownParent: window.jQuery('#agenda-dialog'), width: '100%', placeholder, minimumResultsForSearch: 0});
+    [['#agenda-finca', 'Selecciona una finca…'], ['#agenda-tecnico', 'Selecciona un técnico…'], ['#agenda-estado', 'Selecciona un estado…']].forEach(([selector, placeholder]) => {
+      initializeStandardSelect2(selector, {dialog:'#agenda-dialog', placeholder});
     });
   }
   document.querySelector('#agenda-dialog').showModal();

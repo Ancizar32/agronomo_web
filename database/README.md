@@ -23,6 +23,8 @@ La migración `011_usuarios_fincas.sql` permite asignar varias fincas o predios
 a cada usuario y migra las asignaciones existentes de `fincas.tecnico_id`.
 La migración `012_integridad_insumos_formulas.sql` agrega índices y relaciones
 para proteger la composición de fórmulas utilizada por web y móvil.
+La migración `028_catalogo_certificaciones.sql` convierte las certificaciones
+fijas del predio en un catálogo administrable y conserva los registros previos.
 
 Los archivos de `rollbacks/` son ayudas para revertir una fase durante el
 desarrollo. Pueden eliminar datos creados por el módulo y no sustituyen una

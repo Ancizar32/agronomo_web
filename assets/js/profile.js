@@ -141,6 +141,7 @@ document.querySelector('#profile-form').addEventListener('submit', async (event)
       firma_base64: profileState.signatureBase64,
     });
     document.querySelector('#profile-dialog').close();
+    notifyResult('Perfil guardado.', true);
   } catch (error) {
     notifyResult(error.message, false);
   }

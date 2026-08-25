@@ -16,11 +16,24 @@ body { background:radial-gradient(circle at 88% 2%,rgba(216,243,106,.16),transpa
 .field input,.field textarea,.entity-dialog select { border-radius:var(--radius-md); border-color:rgba(23,63,50,.16); box-shadow:inset 0 1px 2px rgba(23,63,50,.025); }
 .field input:hover,.field textarea:hover,.entity-dialog select:hover { border-color:rgba(23,63,50,.34); }
 .field input:focus,.field textarea:focus,.entity-dialog select:focus { box-shadow:0 0 0 4px rgba(216,243,106,.3); border-color:var(--forest-2); }
+.entity-dialog .select2-container{width:100%!important;min-width:0}.entity-dialog .select2-container .select2-selection--single{height:52px;border:1px solid rgba(23,63,50,.16);border-radius:var(--radius-md);background:#fff;outline:0;transition:border-color .2s ease,box-shadow .2s ease}.entity-dialog .select2-container .select2-selection--single .select2-selection__rendered{height:50px;padding:0 42px 0 15px;color:var(--ink);font-size:15px;line-height:50px;white-space:nowrap;text-overflow:ellipsis}.entity-dialog .select2-container .select2-selection--single .select2-selection__placeholder{color:#78817b}.entity-dialog .select2-container .select2-selection--single .select2-selection__arrow{top:11px;right:10px}.entity-dialog .select2-container--focus .select2-selection--single,.entity-dialog .select2-container--open .select2-selection--single{border-color:var(--forest-2);box-shadow:0 0 0 4px rgba(216,243,106,.3)}.entity-dialog .select2-dropdown{overflow:hidden;border:1px solid rgba(23,63,50,.18);border-radius:12px;background:#fff;box-shadow:0 18px 42px rgba(23,63,50,.2)}.entity-dialog .select2-search--dropdown{padding:9px}.entity-dialog .select2-search--dropdown .select2-search__field{padding:10px 11px;border:1px solid var(--line);border-radius:9px;outline:0}.entity-dialog .select2-search--dropdown .select2-search__field:focus{border-color:var(--forest);box-shadow:0 0 0 3px rgba(216,243,106,.25)}.entity-dialog .select2-results__option{padding:10px 12px;font-size:14px}.entity-dialog .select2-results__option--highlighted[aria-selected]{background:var(--forest);color:#fff}
 .primary-button { border-radius:var(--radius-md); box-shadow:0 9px 22px rgba(23,63,50,.15); transition:transform .22s ease,box-shadow .22s ease,background .22s ease; }
 .primary-button:hover:not(:disabled) { transform:translateY(-2px); box-shadow:0 14px 28px rgba(23,63,50,.22); }
 .primary-button:active:not(:disabled) { transform:translateY(0); }
 .secondary-button,.icon-button { border-radius:var(--radius-sm); transition:.2s ease; }
 .secondary-button:hover,.icon-button:hover { border-color:var(--forest); background:rgba(23,63,50,.06); color:var(--forest); }
+
+/* Menú "⋮" de acciones secundarias por fila — ver rowMenu()/positionRowMenu()
+   en app.js. position:fixed en el dropdown, calculado en JS al abrir. */
+.row-menu { position:relative; display:inline-flex; }
+.row-menu-trigger { display:grid; place-items:center; width:32px; height:32px; border:0; border-radius:8px; background:transparent; color:var(--muted); cursor:pointer; transition:.15s ease; }
+.row-menu-trigger:hover, .row-menu-trigger[aria-expanded="true"] { background:rgba(23,63,50,.08); color:var(--forest); }
+.row-menu-trigger .icon { width:18px; height:18px; }
+.row-menu-dropdown { position:fixed; z-index:200; min-width:190px; padding:6px; border:1px solid rgba(23,63,50,.12); border-radius:12px; background:#fff; box-shadow:0 18px 42px rgba(23,63,50,.22); display:grid; gap:1px; }
+.row-menu-item { display:flex; align-items:center; gap:8px; width:100%; padding:9px 11px; border:0; border-radius:8px; background:transparent; color:var(--ink); text-align:left; cursor:pointer; font-size:14px; font-weight:600; white-space:nowrap; }
+.row-menu-item:hover { background:rgba(23,63,50,.07); }
+.row-menu-item.danger { color:#a04431; }
+.row-menu-item .icon { width:15px; height:15px; flex:none; opacity:.7; }
 
 .sidebar { inset:12px auto 12px 12px; height:auto; border-radius:var(--radius-xl); box-shadow:var(--shadow-float); }
 .workspace { padding-left:12px; }
@@ -36,7 +49,7 @@ body { background:radial-gradient(circle at 88% 2%,rgba(216,243,106,.16),transpa
 .next-steps { border-radius:var(--radius-xl); }
 .metric-icon { box-shadow:inset 0 0 0 1px rgba(23,63,50,.06); }
 
-.admin-tabs { background:rgba(255,255,255,.6); border:1px solid rgba(23,63,50,.08); border-radius:var(--radius-md); padding:5px; gap:5px; width:max-content; }
+.admin-tabs { background:rgba(255,255,255,.6); border:1px solid rgba(23,63,50,.08); border-radius:var(--radius-md); padding:5px; gap:5px; width:max-content; max-width:100%; overflow-x:auto; }
 .admin-tab { border:0; border-radius:9px; padding:10px 17px; }
 .admin-tab.active { background:var(--forest); color:#fff; box-shadow:0 7px 18px rgba(23,63,50,.16); }
 .table-tools { border-radius:var(--radius-lg) var(--radius-lg) 0 0; border-color:rgba(23,63,50,.1); }
@@ -58,7 +71,7 @@ body { background:radial-gradient(circle at 88% 2%,rgba(216,243,106,.16),transpa
 .farm-empty > span { background:linear-gradient(145deg,#fff,#e7eee8); box-shadow:var(--shadow-card); }
 .lot-card { border-radius:var(--radius-md); border-color:rgba(23,63,50,.1); box-shadow:0 4px 14px rgba(23,63,50,.04); transition:.22s ease; }
 .lot-card:hover { border-color:rgba(23,63,50,.22); box-shadow:0 10px 25px rgba(23,63,50,.08); transform:translateY(-2px); }
-.labor-catalog-table { overflow:hidden; border:1px solid rgba(23,63,50,.1); border-radius:20px; background:var(--cream); box-shadow:var(--shadow-card); }
+.labor-catalog-table { overflow-x:auto; overflow-y:hidden; border:1px solid rgba(23,63,50,.1); border-radius:20px; background:var(--cream); box-shadow:var(--shadow-card); }
 .labor-catalog-table .dataTables_wrapper { background:transparent; }
 .labor-catalog-table tbody tr { transition:background .18s ease; }
 .labor-catalog-table tbody tr:hover { background:#f7f8ef; }
@@ -71,6 +84,7 @@ body { background:radial-gradient(circle at 88% 2%,rgba(216,243,106,.16),transpa
 .lot-empty { border-radius:var(--radius-md); background:rgba(255,255,255,.45); }
 .module-message { border-radius:var(--radius-md); box-shadow:0 6px 18px rgba(125,52,37,.08); }
 .entity-dialog { border-radius:var(--radius-xl); box-shadow:var(--shadow-float); overflow:hidden; }
+.entity-dialog.select2-dropdown-open,.entity-dialog:has(.select2-container--open) { overflow:visible; }
 .dialog-close { width:42px; height:42px; border-radius:50%; display:grid; place-items:center; transition:.2s; }
 .dialog-close:hover { background:rgba(23,63,50,.07); transform:rotate(8deg); }
 

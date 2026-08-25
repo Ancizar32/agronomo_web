@@ -2,16 +2,16 @@
   --type-xs: 13px;
   --type-sm: 14px;
   --type-body: 16px;
-  --type-lead: 18px;
-  --type-h4: 21px;
-  --type-h3: 25px;
-  --type-h2: 37px;
-  --type-h1: 48px;
-  --line-body: 1.5;
+  --type-lead: 17px;
+  --type-h4: 19px;
+  --type-h3: 22px;
+  --type-h2: 28px;
+  --type-h1: 35px;
+  --line-body: 1.45;
   --line-heading: 1.08;
 }
 
-html { font-size:18px; }
+html { font-size:16px; }
 body { font-family:var(--sans); font-size:var(--type-body); line-height:var(--line-body); }
 button,input,select,textarea,option { font-family:var(--sans); font-size:var(--type-body); line-height:1.35; }
 p,li,dt,dd,label { font-size:var(--type-body); }
@@ -39,7 +39,7 @@ h1,h2,h3,h4,.module-heading h1,.role-page-heading h1,.formula-editor h1,
 }
 
 .field,.check-field,.cert-grid label { font-size:var(--type-body); }
-.field > span,.field label { font-size:15px; font-weight:700; }
+.field > span,.field label { font-size:15px; font-weight:600; }
 .primary-button,.secondary-button,.icon-button,.admin-tab,.table-action,.text-button,
 .role-back,.formula-editor header button,.formula-groups-heading button,.formula-group-remove {
   font-family:var(--sans);
@@ -69,5 +69,68 @@ h1,h2,h3,h4,.module-heading h1,.role-page-heading h1,.formula-editor h1,
 .swal2-html-container,.swal2-confirm,.swal2-cancel { font-family:var(--sans)!important; font-size:var(--type-body)!important; }
 
 @media(max-width:520px) {
-  :root { --type-h1:41px; --type-h2:33px; --type-h3:24px; }
+  :root { --type-h1:31px; --type-h2:26px; --type-h3:21px; }
+}
+
+/* Escala operativa y densidad visual. Typography se carga al final para
+   neutralizar tamaños diminutos heredados de las hojas de cada módulo. */
+.summary-hero h1 { font-size:clamp(35px,3.5vw,46px); }
+.summary-activity h2,.summary-coverage h2,.summary-alerts>header h2,
+.team-detail-card h2 { font-size:25px; }
+.visit-heading h1,.visit-detail-hero h2 { font-size:var(--type-h1); }
+.visit-filter-dialog h2 { font-size:var(--type-h2); }
+
+.summary-metrics article>span,.summary-metrics article div>span,
+.summary-metrics small,.summary-activity li p,.summary-activity li>small,
+.summary-catalog-line span,.summary-shortcuts strong,.summary-shortcuts small,
+.summary-alerts>header p:last-child,.summary-alerts>header>strong,
+.summary-alert>div p,.summary-alert time,.summary-alert button,
+.summary-alert-empty strong,.summary-alert-empty p,
+.visit-directory>header small,.visit-filter-row label>span,
+.visit-advanced-filters>summary,.visit-advanced-filters>summary strong,
+.visit-advanced-filters label>span,.visit-advanced-filters>div>button,
+.visit-filter-actions button,.visit-filter-actions button strong,
+.visit-filter-modal-grid>label>span,.farm-alert-badge {
+  font-size:var(--type-xs);
+}
+
+.visit-advanced-filters .select2-container .select2-selection--single .select2-selection__rendered,
+.visit-filter-modal-grid input,.visit-filter-modal-grid select,
+.visit-filter-dialog .select2-container .select2-selection--single .select2-selection__rendered {
+  font-size:15px;
+}
+
+/* Más información visible sin sacrificar legibilidad. */
+.module-heading { margin-bottom:14px; padding:18px 22px; }
+.module-heading .eyebrow { margin-bottom:7px; }
+.module-heading>.primary-button { padding:11px 15px; }
+.data-table th,.assignment-table-wrap th { padding:8px 11px; }
+.data-table td,.assignment-table-wrap td { padding:8px 11px; }
+.table-tools { padding:12px 14px; }
+.summary-hero { min-height:210px; padding:24px 28px; }
+.summary-metrics article { min-height:96px; padding:12px 14px; }
+.summary-activity>header,.summary-coverage>header,.summary-alerts>header { padding:14px 17px; }
+.summary-activity li,.summary-alert { padding:9px 16px; }
+.summary-shortcuts { padding:14px; }
+.visit-heading { padding:18px 22px; }
+.visit-metrics article { padding:12px 14px; }
+.visit-directory>header { padding:15px 16px 10px; }
+.visit-list-item { padding-top:13px; padding-bottom:13px; }
+.visit-detail { padding:18px 21px; }
+.team-metrics article,.team-detail-metrics article { padding:13px 15px; }
+.team-detail-heading { padding:17px 20px; }
+.team-detail-card>header { padding:13px 16px; }
+.team-farm-list article,.team-visit-list article { padding:10px 15px; }
+.farm-summary>div { padding:11px 15px; }
+.farm-list-item { padding:11px 14px; }
+.farm-detail,.farm-scale-detail .farm-detail { padding:18px 21px; }
+.lot-card { padding:10px 13px; }
+.catalog-metrics article { padding:11px 14px; }
+.formula-layout>aside,.formula-layout>main { padding:13px 15px; }
+.formula-group { padding:11px 13px; }
+
+@media(max-width:520px) {
+  .module-heading { padding:18px; }
+  .summary-hero { padding:23px 20px; }
+  .visit-detail,.farm-detail,.farm-scale-detail .farm-detail { padding:18px 16px; }
 }

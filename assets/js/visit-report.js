@@ -221,7 +221,10 @@ async function buildVisitReportPdf() {
   ]);
 
   // ===================== Portada =====================
-  const logoMaxSize = 54;
+  // El logo trae texto fino (marca + eslogan "El campo, en manos expertas")
+  // dentro de la propia imagen: a 54pt quedaba ilegible. 110pt lo mantiene
+  // nítido sin desbordar la cabecera.
+  const logoMaxSize = 110;
   const coverTop = report.y;
   let coverTextX = REPORT_MARGIN;
   if (logoDataUrl) {
@@ -236,12 +239,12 @@ async function buildVisitReportPdf() {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(REPORT_COLORS.forest);
-  doc.text('INFORME TÉCNICO AGRONÓMICO', coverTextX, coverTop + 13, {charSpace: 0.6});
+  doc.text('INFORME TÉCNICO AGRONÓMICO', coverTextX, coverTop + 50, {charSpace: 0.6});
   doc.setFont('times', 'bold');
   doc.setFontSize(25);
   doc.setTextColor(REPORT_COLORS.ink);
-  doc.text('Visita a campo', coverTextX, coverTop + 37);
-  report.y = coverTop + Math.max(logoMaxSize, 44) + 16;
+  doc.text('Visita a campo', coverTextX, coverTop + 76);
+  report.y = coverTop + logoMaxSize + 16;
 
   doc.setDrawColor(REPORT_COLORS.border);
   doc.line(REPORT_MARGIN, report.y, REPORT_PAGE_W - REPORT_MARGIN, report.y);

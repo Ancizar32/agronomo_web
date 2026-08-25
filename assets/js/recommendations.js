@@ -71,7 +71,7 @@ function renderRecommendations() {
     const preview = item.descripcion.length > 140 ? `${item.descripcion.slice(0, 140)}…` : item.descripcion;
     const actions = [
       canEdit ? `<button class="table-action" data-edit-recommendation="${escapeRecommendationHtml(item.id)}">Editar</button>` : '',
-      canEdit ? `<button class="table-action${item.voided === '1' ? ' danger' : ''}" data-toggle-recommendation="${escapeRecommendationHtml(item.id)}">${item.voided === '1' ? 'Inactivar' : 'Activar'}</button>` : '',
+      canEdit ? `<button class="table-action table-action-toggle${item.voided === '1' ? ' danger' : ''}" data-toggle-recommendation="${escapeRecommendationHtml(item.id)}">${item.voided === '1' ? 'Inactivar' : 'Activar'}</button>` : '',
     ].join('');
     return `<tr>
       <td>${escapeRecommendationHtml(preview)}</td>
@@ -132,6 +132,7 @@ document.querySelector('#recommendation-form').addEventListener('submit', async 
     });
     document.querySelector('#recommendation-dialog').close();
     await loadRecommendations(true);
+    notifyResult('Recomendación guardada.', true);
   } catch (error) {
     notifyResult(error.message, false);
   }

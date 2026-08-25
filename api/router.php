@@ -7,11 +7,16 @@ final class AgronomoApiRouter
     private const CONTROLLER = 'agronomo';
 
     private const ALLOWED_METHODS = [
-        'validSystem' => true, 'validLogin' => true, 'logoutWeb' => true, 'cambiarPassword' => true,
+        'validSystem' => true, 'validLogin' => true, 'logoutWeb' => true, 'logoutMobile' => true, 'cambiarPassword' => true,
         'getPermisosUsuario' => true,
         'changeProvisionalPasswordWeb' => true,
         'getTecnicos' => true, 'crearTecnico' => true, 'editarTecnico' => true,
         'asignarFincaTecnico' => true, 'getVisitasPorTecnico' => true,
+        'getAsignacionesFincasMobile' => true, 'saveAsignacionesFincasMobile' => true,
+        'getMobileUpdateStatus' => true, 'getMobileNotifications' => true, 'markMobileNotificationsRead' => true,
+        'registerMobilePushToken' => true, 'confirmMobileNotification' => true, 'completeMobileDataUpdate' => true,
+        'getNotificacionesWeb' => true, 'sendNotificacionWeb' => true,
+        'retryNotificacionPushWeb' => true,
         'getEquipoTecnicoWeb' => true,
         'createConfiguracion' => true, 'descargarConfiguracion' => true,
         'createVisitaDetalleRecomendacion' => true, 'descargarVisitaDetallesRecomendaciones' => true,
@@ -22,6 +27,11 @@ final class AgronomoApiRouter
         'createVisita' => true, 'getVisitas' => true,
         'saveAgendaVisita' => true, 'getAgendaVisitas' => true,
         'getAgendaVisitasWeb' => true, 'saveAgendaVisitaWeb' => true, 'cambiarEstadoAgendaVisitaWeb' => true,
+        'getReportesExcelWeb' => true, 'saveReporteExcelWeb' => true, 'toggleReporteExcelWeb' => true,
+        'getReportQueriesWeb' => true, 'saveReportQueryWeb' => true, 'toggleReportQueryWeb' => true, 'previewReportQueryWeb' => true,
+        'getSchemaTablesWeb' => true, 'getSchemaColumnsWeb' => true,
+        'getApiClientesWeb' => true, 'saveApiClienteWeb' => true, 'toggleApiClienteWeb' => true,
+        'getApiClienteReportesWeb' => true, 'saveApiClienteReportesWeb' => true,
         'createRecomendacion' => true, 'getRecomendaciones' => true,
         'createLabor' => true, 'getLabores' => true,
         'createDetalleFormula' => true, 'getDetalleFormula' => true,
@@ -30,11 +40,12 @@ final class AgronomoApiRouter
         'createFinca' => true, 'getFincas' => true,
         'createCategoriaLabor' => true, 'getCategoriasLabor' => true,
         'getFincasWeb' => true, 'getFincaDetalleWeb' => true, 'getUsuariosFincaWeb' => true,
-        'saveFincaWeb' => true, 'saveLoteWeb' => true,
+        'saveFincaWeb' => true, 'saveLoteWeb' => true, 'toggleFincaWeb' => true, 'toggleLoteWeb' => true,
         'savePredioCompletoWeb' => true,
-        'getCultivosWeb' => true, 'saveCultivoWeb' => true,
-        'getLaboresWeb' => true, 'saveLaborWeb' => true,
-        'getCategoriasLaborWeb' => true, 'saveCategoriaLaborWeb' => true,
+        'getTiposCertificacionWeb' => true, 'saveTipoCertificacionWeb' => true, 'toggleTipoCertificacionWeb' => true,
+        'getCultivosWeb' => true, 'saveCultivoWeb' => true, 'toggleCultivoWeb' => true,
+        'getLaboresWeb' => true, 'saveLaborWeb' => true, 'toggleLaborWeb' => true,
+        'getCategoriasLaborWeb' => true, 'saveCategoriaLaborWeb' => true, 'toggleCategoriaLaborWeb' => true,
         'getRecomendacionesWeb' => true, 'saveRecomendacionWeb' => true, 'toggleRecomendacionWeb' => true,
         'getVisitasWeb' => true, 'getVisitaDetalleWeb' => true, 'getResumenWeb' => true,
         'getConfiguracionUsuarioWeb' => true, 'saveConfiguracionUsuarioWeb' => true,
@@ -73,7 +84,7 @@ final class AgronomoApiRouter
 
         require_once dirname(__DIR__) . '/controller/agronomo.controller.php';
         $instance = new AgronomoController();
-        $webMethods = ['getFincasWeb','getFincaDetalleWeb','saveFincaWeb','saveLoteWeb','savePredioCompletoWeb','getDivisionTerritorialWeb','getAdministracionWeb','saveUsuarioWeb','toggleUsuarioWeb','resetUsuarioPasswordWeb','saveRolWeb','deleteRolWeb','getCultivosWeb','saveCultivoWeb','getLaboresWeb','saveLaborWeb','getCategoriasLaborWeb','saveCategoriaLaborWeb','getInsumosFormulasWeb','saveInsumoWeb','toggleInsumoWeb','saveFormulaWeb','toggleFormulaWeb','getRecomendacionesWeb','saveRecomendacionWeb','toggleRecomendacionWeb','getVisitasWeb','getVisitaDetalleWeb','getFirmaTecnicoWeb','getEquipoTecnicoWeb','getResumenWeb','getConfiguracionUsuarioWeb','saveConfiguracionUsuarioWeb','getAgendaVisitasWeb','saveAgendaVisitaWeb','cambiarEstadoAgendaVisitaWeb'];
+        $webMethods = ['getFincasWeb','getFincaDetalleWeb','saveFincaWeb','toggleFincaWeb','saveLoteWeb','toggleLoteWeb','savePredioCompletoWeb','getTiposCertificacionWeb','saveTipoCertificacionWeb','toggleTipoCertificacionWeb','getDivisionTerritorialWeb','getAdministracionWeb','saveUsuarioWeb','toggleUsuarioWeb','resetUsuarioPasswordWeb','saveRolWeb','deleteRolWeb','getCultivosWeb','saveCultivoWeb','toggleCultivoWeb','getLaboresWeb','saveLaborWeb','toggleLaborWeb','getCategoriasLaborWeb','saveCategoriaLaborWeb','toggleCategoriaLaborWeb','getInsumosFormulasWeb','saveInsumoWeb','toggleInsumoWeb','saveFormulaWeb','toggleFormulaWeb','getRecomendacionesWeb','saveRecomendacionWeb','toggleRecomendacionWeb','getVisitasWeb','getVisitaDetalleWeb','getFirmaTecnicoWeb','getEquipoTecnicoWeb','getResumenWeb','getConfiguracionUsuarioWeb','saveConfiguracionUsuarioWeb','getAgendaVisitasWeb','saveAgendaVisitaWeb','cambiarEstadoAgendaVisitaWeb','getReportesExcelWeb','saveReporteExcelWeb','toggleReporteExcelWeb','getReportQueriesWeb','saveReportQueryWeb','toggleReportQueryWeb','previewReportQueryWeb','getSchemaTablesWeb','getSchemaColumnsWeb','getApiClientesWeb','saveApiClienteWeb','toggleApiClienteWeb','getApiClienteReportesWeb','saveApiClienteReportesWeb','getNotificacionesWeb','sendNotificacionWeb','retryNotificacionPushWeb'];
         // Un 401 (sesión inexistente) es un caso distinto de un 403 (sesión
         // válida pero sin el permiso). Antes ambos devolvían el mismo 403
         // "No tienes permiso para realizar esta acción" — dejaba al usuario
@@ -95,8 +106,13 @@ final class AgronomoApiRouter
             'getFincasWeb' => ['fincas', 'ver'], 'getFincaDetalleWeb' => ['fincas', 'ver'],
             'getUsuariosFincaWeb' => ['fincas', 'editar'],
             'saveFincaWeb' => ['fincas', empty($data['id']) ? 'crear' : 'editar'],
+            'toggleFincaWeb' => ['fincas', 'editar'],
             'saveLoteWeb' => ['lotes', empty($data['id']) ? 'crear' : 'editar'],
+            'toggleLoteWeb' => ['lotes', 'editar'],
             'savePredioCompletoWeb' => ['fincas', empty($data['finca_id']) ? 'crear' : 'editar'],
+            'getTiposCertificacionWeb' => ['certificaciones', 'ver'],
+            'saveTipoCertificacionWeb' => ['certificaciones', empty($data['codigo_original']) ? 'crear' : 'editar'],
+            'toggleTipoCertificacionWeb' => ['certificaciones', 'editar'],
             'getDivisionTerritorialWeb' => ['catalogos', 'ver'],
             'saveInsumoWeb' => ['insumos', empty($data['id_original']) ? 'crear' : 'editar'],
             'toggleInsumoWeb' => ['insumos', 'editar'],
@@ -104,10 +120,13 @@ final class AgronomoApiRouter
             'toggleFormulaWeb' => ['formulas', 'editar'],
             'getCultivosWeb' => ['cultivos', 'ver'],
             'saveCultivoWeb' => ['cultivos', empty($data['id']) ? 'crear' : 'editar'],
+            'toggleCultivoWeb' => ['cultivos', 'editar'],
             'getLaboresWeb' => ['labores', 'ver'],
             'saveLaborWeb' => ['labores', empty($data['id']) ? 'crear' : 'editar'],
+            'toggleLaborWeb' => ['labores', 'editar'],
             'getCategoriasLaborWeb' => ['categorias_labor', 'ver'],
             'saveCategoriaLaborWeb' => ['categorias_labor', empty($data['id']) ? 'crear' : 'editar'],
+            'toggleCategoriaLaborWeb' => ['categorias_labor', 'editar'],
             'getRecomendacionesWeb' => ['recomendaciones', 'ver'],
             'saveRecomendacionWeb' => ['recomendaciones', empty($data['id']) ? 'crear' : 'editar'],
             'toggleRecomendacionWeb' => ['recomendaciones', 'editar'],
@@ -119,7 +138,77 @@ final class AgronomoApiRouter
             'getAgendaVisitasWeb' => ['agenda', 'ver'],
             'saveAgendaVisitaWeb' => ['agenda', empty($data['id']) ? 'crear' : 'editar'],
             'cambiarEstadoAgendaVisitaWeb' => ['agenda', 'editar'],
+            'getReportesExcelWeb' => ['reportes_excel', 'ver'],
+            'saveReporteExcelWeb' => ['reportes_excel', empty($data['id']) ? 'crear' : 'editar'],
+            'toggleReporteExcelWeb' => ['reportes_excel', 'editar'],
+            'getReportQueriesWeb' => ['build_query', 'ver'],
+            'saveReportQueryWeb' => ['build_query', empty($data['id']) ? 'crear' : 'editar'],
+            'toggleReportQueryWeb' => ['build_query', 'editar'],
+            'previewReportQueryWeb' => ['build_query', 'ver'],
+            'getSchemaTablesWeb' => ['build_query', 'ver'],
+            'getSchemaColumnsWeb' => ['build_query', 'ver'],
+            'getApiClientesWeb' => ['build_query', 'ver'],
+            'saveApiClienteWeb' => ['build_query', empty($data['id']) ? 'crear' : 'editar'],
+            'toggleApiClienteWeb' => ['build_query', 'editar'],
+            'getApiClienteReportesWeb' => ['build_query', 'ver'],
+            'saveApiClienteReportesWeb' => ['build_query', 'editar'],
+            'getNotificacionesWeb' => ['notificaciones', 'ver'],
+            'sendNotificacionWeb' => ['notificaciones', 'enviar'],
+            'retryNotificacionPushWeb' => ['notificaciones', 'enviar'],
         ];
+        $mobileMutationMethods = [
+            'createConfiguracion','createVisitaDetalleRecomendacion',
+            'createVisitaDetalleFormula','createActividad','createHallazgo',
+            'createVisitaDetalleLote','createVisita','saveAgendaVisita',
+            'createRecomendacion','createLabor','createDetalleFormula',
+            'createFormula','createLote','createFinca','createCategoriaLabor',
+            'createCultivo','createInsumo','asignarFincaTecnico',
+            'saveAsignacionesFincasMobile',
+        ];
+        if ($method === 'getAsignacionesFincasMobile') {
+            $token = $this->bearerToken($data);
+            $mobileUserId = $instance->authenticateMobileToken($token);
+            if ($mobileUserId === null) {
+                $this->respond(false, 'Tu sesión móvil ya no está vigente. Inicia sesión nuevamente.', ['authentication_required'=>true], 401);
+            }
+            unset($data['_api_token']);
+            if (!$instance->canMobileMutation($mobileUserId, 'saveAsignacionesFincasMobile', $data)) {
+                $this->respond(false, 'No tienes permiso para consultar asignaciones de fincas.', ['permission_denied'=>true], 403);
+            }
+        }
+        if (in_array($method, ['getMobileUpdateStatus','getMobileNotifications','markMobileNotificationsRead','registerMobilePushToken','confirmMobileNotification','completeMobileDataUpdate'], true)) {
+            $token = $this->bearerToken($data);
+            $mobileUserId = $instance->authenticateMobileToken($token);
+            if ($mobileUserId === null) {
+                $this->respond(false, 'Tu sesión móvil ya no está vigente. Inicia sesión nuevamente.', ['authentication_required'=>true], 401);
+            }
+            $data['authenticated_user_id'] = $mobileUserId;
+            $data['api_token'] = $token;
+            unset($data['_api_token']);
+        }
+        if ($method === 'logoutMobile') {
+            $token = $this->bearerToken($data);
+            $mobileUserId = $instance->authenticateMobileToken($token);
+            if ($mobileUserId === null) {
+                $this->respond(false, 'La sesión móvil ya no se encuentra activa.', [], 401);
+            }
+            $data['authenticated_user_id'] = $mobileUserId;
+            $data['api_token'] = $token;
+            unset($data['_api_token']);
+        }
+        if (in_array($method, $mobileMutationMethods, true)) {
+            $token = $this->bearerToken($data);
+            $mobileUserId = $instance->authenticateMobileToken($token);
+            if ($mobileUserId === null) {
+                $this->respond(false, 'Tu sesión móvil ya no está vigente: pudo expirar o ser revocada. Inicia sesión nuevamente.', ['authentication_required'=>true], 401);
+            }
+            unset($data['_api_token']);
+            // La autoría nunca se acepta desde el JSON del dispositivo.
+            $data['created_by'] = $mobileUserId;
+            if ($method !== 'createConfiguracion' && !$instance->canMobileMutation($mobileUserId, $method, $data)) {
+                $this->respond(false, 'Permiso revocado. Tu usuario ya no tiene autorización para realizar esta acción.', ['permission_denied'=>true,'method'=>$method], 403);
+            }
+        }
         if ($method === 'getAdministracionWeb' && !$instance->canWeb('usuarios', 'ver') && !$instance->canWeb('roles', 'ver')) {
             $this->respond(false, 'No tienes permiso para consultar la administración.', [], 403);
         }
@@ -132,6 +221,7 @@ final class AgronomoApiRouter
                 $this->respond(false, 'No tienes permiso para realizar esta acción.', [], 403);
             }
         }
+        unset($data['_api_token']);
         try {
             $instance->{$method}($data);
         } catch (Throwable $e) {
@@ -154,6 +244,23 @@ final class AgronomoApiRouter
             return $_POST;
         }
         $this->respond(false, 'Se esperaba un cuerpo JSON válido.', [], 400);
+    }
+
+    private function bearerToken(array $data = []): string
+    {
+        $header = (string)(
+            $_SERVER['HTTP_AUTHORIZATION']
+            ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+            ?? ''
+        );
+        if ($header === '' && function_exists('getallheaders')) {
+            $headers = getallheaders();
+            $header = (string)($headers['Authorization'] ?? $headers['authorization'] ?? '');
+        }
+        if (preg_match('/^Bearer\s+(.+)$/i', trim($header), $matches)) {
+            return trim($matches[1]);
+        }
+        return trim((string)($data['_api_token'] ?? ''));
     }
 
     private function respond(bool $success, string $message, array $detail, int $status): void

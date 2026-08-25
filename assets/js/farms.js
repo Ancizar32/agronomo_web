@@ -1,4 +1,4 @@
-const farmState = { farms: [], selected: null, lots: [], crops: [], assignableUsers: [], loaded: false, table: null };
+const farmState = { farms: [], selected: null, lots: [], crops: [], certificationTypes: [], assignableUsers: [], loaded: false, table: null };
 const farmTableBody = document.querySelector('#farms-table-body');
 const farmDetail = document.querySelector('#farm-detail');
 const farmMessage = document.querySelector('#farm-message');
@@ -96,15 +96,19 @@ function renderFarmTable() {
     const alerts = Number(farm.total_alertas || 0);
     const criticalAlerts = Number(farm.alertas_criticas || 0);
     const actions = [
-      `<button class="table-action" data-view-farm="${escapeFarmHtml(farm.id)}">Ver lotes</button>`,
-      canEditFarm ? `<button class="table-action" data-edit-property="${escapeFarmHtml(farm.id)}">${farm.productor_id ? 'Editar predio' : 'Completar predio'}</button>` : '',
-      canEditFarm ? `<button class="table-action" data-edit-farm="${escapeFarmHtml(farm.id)}">Asignar</button>` : '',
+      canEditFarm ? `<button class="table-action table-action-toggle${farm.voided === '1' ? ' danger' : ''}" data-toggle-farm="${escapeFarmHtml(farm.id)}">${farm.voided === '1' ? 'Desactivar' : 'Activar'}</button>` : '',
+      rowMenu([
+        `<button type="button" class="row-menu-item" data-view-farm="${escapeFarmHtml(farm.id)}">Ver lotes</button>`,
+        canEditFarm ? `<button type="button" class="row-menu-item" data-edit-property="${escapeFarmHtml(farm.id)}">${farm.productor_id ? 'Editar predio' : 'Completar predio'}</button>` : '',
+        canEditFarm ? `<button type="button" class="row-menu-item" data-edit-farm="${escapeFarmHtml(farm.id)}">Asignar</button>` : '',
+      ]),
     ].join('');
     return `<tr><td><div class="farm-table-name"><strong>${escapeFarmHtml(farm.descripcion)}</strong><small>${farm.productor_id ? 'Predio completo' : 'Finca básica'}${alerts ? ` · <span class="farm-alert-badge ${criticalAlerts?'critical':'warning'}">! ${alerts} ${alerts===1?'alerta':'alertas'}</span>` : ''}</small></div></td><td><div class="farm-location-cell">${icon('pin')}${escapeFarmHtml(farm.ubicacion || 'Sin ubicación')}</div></td><td><div class="farm-directory-count"><strong>${Number(farm.total_lotes || 0)}</strong><span>lotes</span></div></td><td>${area ? `${area.toLocaleString('es-CO',{maximumFractionDigits:2})} ha` : '—'}</td><td>${responsibleCount ? `<div class="farm-responsibles"><strong>${responsibleCount} ${responsibleCount===1?'responsable':'responsables'}</strong><small>${escapeFarmHtml(farm.responsables || 'Equipo asignado')}</small></div>` : '<span class="no-assignment">Sin asignar</span>'}</td><td><span class="status-pill ${farm.voided==='1'?'active':'inactive'}">${farm.voided==='1'?'Activo':'Inactivo'}</span></td><td><div class="table-actions">${actions}</div></td></tr>`;
   }).join('');
   farmTableBody.querySelectorAll('[data-view-farm]').forEach((button) => button.onclick = () => { const farm=farmState.farms.find((item)=>item.id===button.dataset.viewFarm); if(farm)selectFarm(farm); });
   farmTableBody.querySelectorAll('[data-edit-farm]').forEach((button) => button.onclick = () => { const farm=farmState.farms.find((item)=>item.id===button.dataset.editFarm); if(farm)openFarmDialog(farm); });
   farmTableBody.querySelectorAll('[data-edit-property]').forEach((button) => button.onclick = () => { const farm=farmState.farms.find((item)=>item.id===button.dataset.editProperty); if(farm)openPropertyWizard(farm); });
+  farmTableBody.querySelectorAll('[data-toggle-farm]').forEach((button) => button.onclick = () => toggleFarm(button.dataset.toggleFarm));
   if (window.jQuery?.fn?.DataTable) {
     farmState.table = window.jQuery('#farms-table').DataTable({pageLength:25,lengthMenu:[[10,25,50,-1],[10,25,50,'Todas']],order:[[0,'asc']],autoWidth:false,columnDefs:[{targets:6,orderable:false,searchable:false}],dom:'<"dt-top"lf>rt<"dt-bottom"ip>',language:{emptyTable:'No hay fincas registradas',zeroRecords:'No se encontraron fincas',info:'Mostrando _START_ a _END_ de _TOTAL_',infoEmpty:'0 fincas',lengthMenu:'Mostrar _MENU_',search:'Buscar:',searchPlaceholder:'Nombre, ubicación o responsable…',paginate:{next:'Siguiente',previous:'Anterior'}}});
     applyFarmFilters();
@@ -149,11 +153,43 @@ function renderFarmDetail() {
   farmDetail.innerHTML = `
     <header class="farm-detail-header"><div><p class="eyebrow">${farm.productor_id ? 'Predio seleccionado' : 'Finca básica seleccionada'}</p><h2>${escapeFarmHtml(farm.descripcion)}</h2><p>${icon('pin')}${escapeFarmHtml(farm.ubicacion || 'Ubicación sin registrar')} · ${Number(farm.total_usuarios || 0)} ${Number(farm.total_usuarios || 0) === 1 ? 'usuario asignado' : 'usuarios asignados'}${Number(farm.total_alertas||0)?` · <span class="farm-alert-badge ${Number(farm.alertas_criticas||0)?'critical':'warning'}">! ${Number(farm.total_alertas)} alertas documentales</span>`:''}</p></div><div class="detail-actions">${detailActions}</div></header>
     <div class="lot-heading"><div><p class="eyebrow">Distribución productiva</p><h3>${activeLots.length} lotes activos · ${farmState.lots.length} totales</h3></div>${canCreateLot ? `<button id="new-lot-button" class="primary-button compact-action"><span>+ Agregar lote</span></button>` : ''}</div>
-    <div class="farm-lots-table">${farmState.lots.length ? `<table><thead><tr><th>Lote</th><th>Cultivo</th><th>Área</th><th>Visitas</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${farmState.lots.map((lot) => `<tr><td><strong>${escapeFarmHtml(lot.nombre)}</strong></td><td>${escapeFarmHtml(lot.cultivo || 'Sin identificar')}</td><td>${lot.hectareas ? `${Number(lot.hectareas).toLocaleString('es-CO')} ha` : '—'}</td><td><span class="visit-count-pill${Number(lot.total_visitas||0)===0?' zero':''}">${Number(lot.total_visitas||0)}</span></td><td><span class="status-pill ${lot.voided==='1'?'active':'inactive'}">${lot.voided==='1'?'Activo':'Inactivo'}</span></td><td>${canEditLot ? `<button class="table-action" data-edit-lot="${escapeFarmHtml(lot.id)}">Editar lote</button>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="lot-empty">Esta finca aún no tiene lotes. Agrega el primero para comenzar.</div>'}</div>`;
+    <div class="farm-lots-table">${farmState.lots.length ? `<table><thead><tr><th>Lote</th><th>Cultivo</th><th>Área</th><th>Visitas</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${farmState.lots.map((lot) => `<tr><td><strong>${escapeFarmHtml(lot.nombre)}</strong></td><td>${escapeFarmHtml(lot.cultivo || 'Sin identificar')}</td><td>${lot.hectareas ? `${Number(lot.hectareas).toLocaleString('es-CO')} ha` : '—'}</td><td><span class="visit-count-pill${Number(lot.total_visitas||0)===0?' zero':''}">${Number(lot.total_visitas||0)}</span></td><td><span class="status-pill ${lot.voided==='1'?'active':'inactive'}">${lot.voided==='1'?'Activo':'Inactivo'}</span></td><td><div class="table-actions">${canEditLot ? `<button class="table-action" data-edit-lot="${escapeFarmHtml(lot.id)}">Editar lote</button><button class="table-action table-action-toggle${lot.voided==='1'?' danger':''}" data-toggle-lot="${escapeFarmHtml(lot.id)}">${lot.voided==='1'?'Desactivar':'Activar'}</button>` : ''}</div></td></tr>`).join('')}</tbody></table>` : '<div class="lot-empty">Esta finca aún no tiene lotes. Agrega el primero para comenzar.</div>'}</div>`;
   document.querySelector('#edit-farm-button')?.addEventListener('click', () => openFarmDialog(farm));
   document.querySelector('#edit-property-button')?.addEventListener('click', () => openPropertyWizard(farm));
   document.querySelector('#new-lot-button')?.addEventListener('click', () => openLotDialog());
   farmDetail.querySelectorAll('[data-edit-lot]').forEach((button) => button.addEventListener('click', () => openLotDialog(farmState.lots.find((lot) => lot.id === button.dataset.editLot))));
+  farmDetail.querySelectorAll('[data-toggle-lot]').forEach((button) => button.addEventListener('click', () => toggleLot(button.dataset.toggleLot)));
+}
+
+async function toggleFarm(id) {
+  const farm = farmState.farms.find((item) => item.id === id);
+  if (!farm) return;
+  const result = await Swal.fire({
+    title: `¿${farm.voided === '1' ? 'Desactivar' : 'Activar'} esta finca?`,
+    text: 'El catálogo se actualizará para la app móvil.',
+    icon: 'warning', showCancelButton: true,
+    confirmButtonText: 'Sí, continuar', cancelButtonText: 'Cancelar', confirmButtonColor: '#173f32',
+  });
+  if (!result.value) return;
+  try { await farmApi('toggleFincaWeb', {id}); await loadFarms(true); showFarmMessage('Estado de la finca actualizado.', true); }
+  catch (error) { Swal.fire({title: 'No fue posible', text: error.message, icon: 'error'}); }
+}
+
+async function toggleLot(id) {
+  const lot = farmState.lots.find((item) => item.id === id);
+  if (!lot) return;
+  const result = await Swal.fire({
+    title: `¿${lot.voided === '1' ? 'Desactivar' : 'Activar'} este lote?`,
+    text: 'El catálogo se actualizará para la app móvil.',
+    icon: 'warning', showCancelButton: true,
+    confirmButtonText: 'Sí, continuar', cancelButtonText: 'Cancelar', confirmButtonColor: '#173f32',
+  });
+  if (!result.value) return;
+  try {
+    await farmApi('toggleLoteWeb', {id});
+    await loadFarms(true);
+    showFarmMessage('Estado del lote actualizado.', true);
+  } catch (error) { Swal.fire({title: 'No fue posible', text: error.message, icon: 'error'}); }
 }
 
 async function openFarmDialog(farm = null) {
@@ -189,6 +225,7 @@ function openLotDialog(lot = null) {
   document.querySelector('#lot-area').value = lot?.hectareas || '';
   document.querySelector('#lot-crop').innerHTML = '<option value="">Selecciona un cultivo</option>' + farmState.crops.map((crop) => `<option value="${escapeFarmHtml(crop.id)}" ${lot?.cultivo_id === crop.id ? 'selected' : ''}>${escapeFarmHtml(crop.descripcion)}</option>`).join('');
   document.querySelector('#lot-dialog').showModal();
+  initializeStandardSelect2('#lot-crop', {dialog:'#lot-dialog', placeholder:'Busca y selecciona un cultivo…'});
 }
 
 document.querySelector('[data-view="farms"]').addEventListener('click', () => loadFarms(true));
@@ -213,6 +250,9 @@ const propertyLocality = document.querySelector('#property-locality');
 
 function initializePropertySelect2() {
   if (!window.jQuery?.fn?.select2) return;
+  [document.querySelector('#property-form select[name="tipo"]'), document.querySelector('#property-form select[name="estado"]')].forEach((select) => {
+    initializeStandardSelect2(select, {dialog:'#property-dialog', searchable:false});
+  });
   [propertyDepartment, propertyMunicipality, propertyLocality].forEach((select) => {
     const element = window.jQuery(select);
     if (!element.hasClass('select2-hidden-accessible')) {
@@ -332,10 +372,47 @@ function syncPropertyExpirationFields() {
     dateField.required = checkbox.checked;
     dateField.closest('label')?.classList.toggle('expiration-required', checkbox.checked);
   });
+  document.querySelectorAll('#property-certifications [data-certification-code]').forEach((checkbox) => {
+    const dateField=document.querySelector(`#property-certifications [data-certification-date="${CSS.escape(checkbox.dataset.certificationCode)}"]`);
+    if(!dateField)return;
+    dateField.disabled=!checkbox.checked;
+    dateField.required=checkbox.checked&&dateField.dataset.certificationExpiration==='1';
+    dateField.closest('label')?.classList.toggle('expiration-required',dateField.required);
+  });
 }
 
+function currentPropertyCertifications() {
+  const selected = {};
+  document.querySelectorAll('#property-certifications [data-certification-code]').forEach((checkbox) => {
+    const code = checkbox.dataset.certificationCode;
+    const date = document.querySelector(`#property-certifications [data-certification-date="${CSS.escape(code)}"]`);
+    selected[code] = {vigente:checkbox.checked,valido_hasta:date?.value||''};
+  });
+  return selected;
+}
+
+function renderPropertyCertifications(existing = [], selectCode = '') {
+  const selected = Array.isArray(existing) ? Object.fromEntries(existing.map((item)=>[item.tipo,{vigente:Number(item.vigente)===1,valido_hasta:item.valido_hasta||''}])) : existing;
+  const selectedCodes = new Set(Object.keys(selected).filter((code)=>selected[code]?.vigente));
+  if (selectCode) selectedCodes.add(selectCode);
+  const types = farmState.certificationTypes.filter((item)=>Number(item.activo)===1||selectedCodes.has(item.codigo));
+  const target = document.querySelector('#property-certifications');
+  target.innerHTML = types.map((item)=>{
+    const checked=selectedCodes.has(item.codigo), dateName=`certification_${item.codigo}_date`;
+    return `<label class="certification-option${Number(item.activo)===1?'':' inactive'}"><input type="checkbox" data-certification-code="${escapeFarmHtml(item.codigo)}" ${checked?'checked':''}><span>${escapeFarmHtml(item.nombre)}</span>${item.descripcion?`<small>${escapeFarmHtml(item.descripcion)}</small>`:''}<input name="${escapeFarmHtml(dateName)}" data-certification-date="${escapeFarmHtml(item.codigo)}" type="date" value="${escapeFarmHtml(selected[item.codigo]?.valido_hasta||'')}" ${Number(item.requiere_vencimiento)===1?'data-certification-expiration="1"':''}></label>`;
+  }).join('') || '<div class="certification-loading">No hay certificaciones disponibles.</div>';
+  syncPropertyExpirationFields();
+}
+
+async function refreshPropertyCertifications(selectCode = '') {
+  const selected=currentPropertyCertifications();
+  farmState.certificationTypes=await window.loadCertificationCatalog(true);
+  renderPropertyCertifications(selected,selectCode);
+}
+window.refreshPropertyCertifications=refreshPropertyCertifications;
+
 document.querySelector('#property-form').addEventListener('change', (event) => {
-  if (event.target.matches('[data-expiration-toggle]')) syncPropertyExpirationFields();
+  if (event.target.matches('[data-expiration-toggle],[data-certification-code]')) syncPropertyExpirationFields();
 });
 
 async function openPropertyWizard(farm = null, initialStep = 0) {
@@ -346,12 +423,15 @@ async function openPropertyWizard(farm = null, initialStep = 0) {
   document.querySelector('#property-farm-id').value = farm?.id || '';
   document.querySelector('#property-dialog-title').textContent = farm ? (farm.productor_id ? 'Editar predio' : 'Completar finca como predio') : 'Nuevo predio';
   document.querySelector('#wizard-save-label').textContent = farm ? 'Guardar predio' : 'Registrar predio';
+  document.querySelector('#quick-new-certification-button').hidden = !farmCan('certificaciones.crear');
+  document.querySelector('#property-certifications').innerHTML = '<div class="certification-loading">Cargando catálogo…</div>';
   renderPropertyStep();
   document.querySelector('#property-dialog').showModal();
   initializePropertySelect2();
   try {
-    await loadPropertyDepartments();
-    if (!farm) return;
+    const certificationPromise = window.loadCertificationCatalog().then((rows)=>{farmState.certificationTypes=rows||[];return farmState.certificationTypes;});
+    await Promise.all([loadPropertyDepartments(),certificationPromise]);
+    if (!farm) { renderPropertyCertifications(); return; }
     const detail = await farmApi('getFincaDetalleWeb', {finca_id:farm.id});
     const predio = detail.predio || {};
     const values = {
@@ -369,11 +449,7 @@ async function openPropertyWizard(farm = null, initialStep = 0) {
       await loadPropertyMunicipalities(predio.departamento_id, predio.municipio_id);
       if (predio.municipio_id) await loadPropertyLocalities(predio.municipio_id, predio.localidad_rural_id);
     }
-    (detail.certificaciones || []).forEach((cert) => {
-      setPropertyField(cert.tipo, cert.vigente);
-      setPropertyField(`${cert.tipo}_fecha`, cert.valido_hasta);
-    });
-    syncPropertyExpirationFields();
+    renderPropertyCertifications(detail.certificaciones || []);
     window.setTimeout(() => document.querySelector(`.wizard-step[data-step="${propertyStep}"] input:not([disabled]), .wizard-step[data-step="${propertyStep}"] select:not([disabled])`)?.focus(), 80);
   } catch (error) {
     document.querySelector('#property-dialog').close();
@@ -400,6 +476,7 @@ document.querySelector('#farm-form').addEventListener('submit', async (event) =>
     document.querySelector('#farm-dialog').close();
     closeFarmDetail();
     await loadFarms(true);
+    showFarmMessage('Finca guardada.', true);
   } catch (error) { showFarmMessage(error.message); }
 });
 
@@ -410,6 +487,7 @@ document.querySelector('#lot-form').addEventListener('submit', async (event) => 
     await farmApi('saveLoteWeb', {id:document.querySelector('#lot-id').value, finca_id:document.querySelector('#lot-farm-id').value, nombre:document.querySelector('#lot-name').value, cultivo_id:document.querySelector('#lot-crop').value, hectareas:document.querySelector('#lot-area').value, created_by:user.id || ''});
     document.querySelector('#lot-dialog').close();
     await loadFarms(true);
+    showFarmMessage('Lote guardado.', true);
   } catch (error) { showFarmMessage(error.message); }
 });
 
@@ -429,7 +507,6 @@ document.querySelector('#property-form').addEventListener('submit', async (event
     window.setTimeout(() => steps[invalidStepIndex].querySelector('[required]:invalid')?.reportValidity(), 0);
     return;
   }
-  const form=new FormData(event.currentTarget); const user=currentFarmUser(); const certs={};
-  ['GLOBALGAP','RAINFOREST','FAIRTRADE','MICROBIOLOGICO'].forEach((type)=>{certs[type]={vigente:form.has(type),valido_hasta:form.get(`${type}_fecha`)||''};});
+  const form=new FormData(event.currentTarget); const user=currentFarmUser(); const certs=currentPropertyCertifications();
   try { const result=await farmApi('savePredioCompletoWeb',{finca_id:form.get('finca_id')||'',created_by:user.id||'',productor:{tipo:form.get('tipo'),nombre:form.get('productor_nombre'),cedula:form.get('cedula'),nit:form.get('nit'),dv:form.get('dv'),telefono:form.get('telefono'),correo:form.get('correo')},predio:{descripcion:form.get('predio_nombre'),departamento_id:form.get('departamento_id'),municipio_id:form.get('municipio_id'),localidad_rural_id:form.get('localidad_rural_id'),estado_predio:form.get('estado'),hectareas_totales:form.get('hectareas'),latitud:form.get('latitud'),longitud:form.get('longitud'),url_localizacion:form.get('url'),contrato_proveeduria:form.has('contrato'),fecha_contrato:form.get('fecha_contrato'),fecha_vencimiento_contrato:form.get('fecha_vencimiento_contrato'),version_contrato:form.get('version_contrato'),registro_ica:form.has('ica'),numero_ica:form.get('numero_ica'),vencimiento_ica:form.get('vencimiento_ica'),anticipo:form.has('anticipo'),valor_anticipo:form.get('valor_anticipo')},certificaciones:certs}); document.querySelector('#property-dialog').close(); closeFarmDetail(); await loadFarms(true); if(window.Swal) Swal.fire({icon:'success',title:'Predio guardado',text:result?.message || 'La información quedó actualizada.',confirmButtonText:'Aceptar'}); } catch(error){showFarmMessage(error.message); if(window.Swal) Swal.fire({icon:'error',title:'No fue posible guardar',text:error.message,confirmButtonText:'Aceptar'});}
 });

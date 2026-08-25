@@ -52,10 +52,12 @@ function renderUsers() {
   body.innerHTML = users.map((user) => {
     const initials = (user.name || user.user).split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
     const actions = [
-      `<button class="table-action" data-view-user="${escapeAdmin(user.id)}">Ver</button>`,
-      hasAdminPermission('usuarios.editar') ? `<button class="table-action" data-edit-user="${escapeAdmin(user.id)}">Editar</button>` : '',
-      hasAdminPermission('usuarios.cambiar_password') ? `<button class="table-action" data-password-user="${escapeAdmin(user.id)}">Clave</button>` : '',
-      hasAdminPermission('usuarios.editar') && user.id !== adminUser().id ? `<button class="table-action ${user.void === '1' ? 'danger' : ''}" data-toggle-user="${escapeAdmin(user.id)}">${user.void === '1' ? 'Desactivar' : 'Activar'}</button>` : '',
+      hasAdminPermission('usuarios.editar') && user.id !== adminUser().id ? `<button class="table-action table-action-toggle ${user.void === '1' ? 'danger' : ''}" data-toggle-user="${escapeAdmin(user.id)}">${user.void === '1' ? 'Desactivar' : 'Activar'}</button>` : '',
+      rowMenu([
+        `<button type="button" class="row-menu-item" data-view-user="${escapeAdmin(user.id)}">Ver</button>`,
+        hasAdminPermission('usuarios.editar') ? `<button type="button" class="row-menu-item" data-edit-user="${escapeAdmin(user.id)}">Editar</button>` : '',
+        hasAdminPermission('usuarios.cambiar_password') ? `<button type="button" class="row-menu-item" data-password-user="${escapeAdmin(user.id)}">Clave</button>` : '',
+      ]),
     ].join('');
     const provisional = user.pass_provi === '1' && user.clave_provisional
       ? `<span class="provisional-key"><small>Clave provisional</small><strong>${escapeAdmin(user.clave_provisional)}</strong></span>`
@@ -224,6 +226,7 @@ function openUserDialog(user = null) {
   document.querySelector('.provisional-note').hidden = editing;
   document.querySelector('#user-dialog-message').textContent = '';
   document.querySelector('#user-dialog').showModal();
+  initializeStandardSelect2('#admin-user-role', {dialog:'#user-dialog', placeholder:'Busca y selecciona un rol…'});
   populateUserFarms((user?.fincas || []).map((farm) => farm.id));
 }
 

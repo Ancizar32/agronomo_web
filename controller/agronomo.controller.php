@@ -1,5 +1,5 @@
 <?php
-date_default_timezone_set("America/Lima");
+date_default_timezone_set("America/Bogota");
 
 use function InduSoft\rlog;
 use function InduSoft\service_return;
@@ -14,10 +14,29 @@ class AgronomoController extends ControllerBase
     private $model;
     private $liveSession = null;
 
+    // Tablas con datos sensibles (credenciales, hashes, tokens) que el
+    // constructor de queries nunca deja referenciar, ni para escribir SQL
+    // ni para navegar el esquema — mismo criterio que la lista negra de
+    // AgroSoft_dev2/build.query, adaptada a las tablas de esta base.
+    private const BUILD_QUERY_BLOCKED_TABLES = [
+        'user', 'auth_tokens', 'api_clientes', 'api_cliente_reportes',
+        'api_request_log', 'report_queries', 'log_accesos',
+        'notificaciones_mobile', 'notificacion_destinatarios', 'mobile_data_version',
+    ];
+
     public function __construct()
     {
         parent::__construct();
         $this->model = loadModel('model');
+    }
+
+    // Los errores de MySQL para tablas/columnas inexistentes traen el
+    // esquema calificado (ej. 'u902320992_agronomo.cultivo') — se quita ese
+    // prefijo antes de devolver el mensaje al navegador, para no revelar el
+    // nombre real de la base de datos a quien esté probando una consulta.
+    private function sanitizeBuildQueryError(string $message): string
+    {
+        return preg_replace('/\b[a-zA-Z0-9_]+\.([a-zA-Z0-9_]+)\b/', '$1', $message);
     }
 
     /** Ventana de histórico enviada a mobile. Nunca entrega todo el histórico
@@ -64,7 +83,47 @@ class AgronomoController extends ControllerBase
         $_SESSION['agronomo_role_code'] = $userRow['rol_codigo'] ?? '';
         $_SESSION['agronomo_permissions'] = $permissions;
         $_SESSION['agronomo_pass_provi'] = (string)($userRow['pass_provi'] ?? '0');
-        $this->model->executePrepared("UPDATE `user` SET ultimo_acceso=NOW() WHERE id=:id", [':id'=>$userRow['id']]);
+        $this->model->executePrepared(
+            "UPDATE `user` SET ultimo_acceso=:ahora WHERE id=:id",
+            [':id'=>$userRow['id'], ':ahora'=>date('Y-m-d H:i:s')]
+        );
+        $apiToken = null;
+        if (strtolower(trim((string)($data['client_type'] ?? ''))) === 'mobile') {
+            $apiToken = bin2hex(random_bytes(32));
+            $tokenCreatedAt = date('Y-m-d H:i:s');
+            $tokenExpiresAt = date('Y-m-d H:i:s', strtotime('+30 days'));
+            $tokenDeviceName = substr(trim((string)($data['device_name'] ?? 'App móvil')), 0, 120);
+            $tokenPlatform = substr(trim((string)($data['platform'] ?? '')), 0, 20);
+            // Solo se reemplaza la sesión anterior del mismo dispositivo. Un
+            // usuario puede trabajar simultáneamente desde Android e iOS.
+            $this->model->executePrepared(
+                "UPDATE auth_tokens SET revoked_at=:ahora
+                 WHERE user_id=:usuario AND device_name=:dispositivo
+                   AND platform=:platform AND revoked_at IS NULL",
+                [
+                    ':ahora'=>$tokenCreatedAt,
+                    ':usuario'=>(string)$userRow['id'],
+                    ':dispositivo'=>$tokenDeviceName,
+                    ':platform'=>$tokenPlatform,
+                ]
+            );
+            $this->model->executePrepared(
+                "INSERT INTO auth_tokens(user_id,token_hash,device_name,app_version,build_number,platform,os_version,ip_address,expires_at,created_at)
+                 VALUES(:usuario,:hash,:dispositivo,:app_version,:build_number,:platform,:os_version,:ip,:expires_at,:created_at)",
+                [
+                    ':usuario'=>(string)$userRow['id'],
+                    ':hash'=>hash('sha256', $apiToken),
+                    ':dispositivo'=>$tokenDeviceName,
+                    ':app_version'=>substr(trim((string)($data['app_version'] ?? '')), 0, 30),
+                    ':build_number'=>substr(trim((string)($data['build_number'] ?? '')), 0, 20),
+                    ':platform'=>$tokenPlatform,
+                    ':os_version'=>substr(trim((string)($data['os_version'] ?? '')), 0, 80),
+                    ':ip'=>substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45),
+                    ':expires_at'=>$tokenExpiresAt,
+                    ':created_at'=>$tokenCreatedAt,
+                ]
+            );
+        }
         // La respuesta de autenticación nunca debe exponer la contraseña ni
         // columnas internas de la tabla user al navegador o a la app móvil.
         $data_cliente = [
@@ -79,6 +138,7 @@ class AgronomoController extends ControllerBase
             'rol_nombre' => $userRow['rol_nombre'] ?? '',
             'permissions' => $permissions,
         ];
+        if ($apiToken !== null) $data_cliente['api_token'] = $apiToken;
 
         service_return(['data' => $data_cliente, 'message' => 'El login se realiza con éxito!']);
     }
@@ -238,6 +298,172 @@ class AgronomoController extends ControllerBase
         return !empty($rows);
     }
 
+    private function rejectInactiveMobileReference(string $entity, string $id, bool $missing = false): void
+    {
+        $state = $missing ? 'ya no existe' : 'fue inactivado';
+        service_return([
+            'success'=>false,
+            'title'=>'Catálogo desactualizado',
+            'icon'=>'warning',
+            'message'=>"El registro de {$entity} seleccionado {$state} en el servidor. Corrige o elimina este envío pendiente y después actualiza los datos.",
+            'data'=>[
+                'reason'=>$missing ? 'missing_reference' : 'inactive_reference',
+                'entity'=>$entity,
+                'id'=>$id,
+                'requires_data_refresh'=>true,
+                'can_discard'=>true,
+            ],
+        ]);
+    }
+
+    private function assertActiveMobileReference(string $table, string $id, string $entity): array
+    {
+        $allowed = ['fincas','lotes','cultivos','labores','categorias_labor','formulas','insumos'];
+        if (!in_array($table, $allowed, true) || trim($id) === '') {
+            $this->rejectInactiveMobileReference($entity, $id, true);
+        }
+        $rows = $this->model->queryPrepared("SELECT * FROM `{$table}` WHERE id=:id LIMIT 1", [':id'=>$id]);
+        if (!$rows) $this->rejectInactiveMobileReference($entity, $id, true);
+        if ((string)($rows[0]['voided'] ?? '0') !== '1') $this->rejectInactiveMobileReference($entity, $id, false);
+        return $rows[0];
+    }
+
+    private function assertMobileCatalogNotReactivated(string $table, string $id, string $entity, array $data): void
+    {
+        if ($id === '' || (string)($data['voided'] ?? '1') === '0') return;
+        $rows = $this->model->queryPrepared("SELECT voided FROM `{$table}` WHERE id=:id LIMIT 1", [':id'=>$id]);
+        if ($rows && (string)$rows[0]['voided'] !== '1') $this->rejectInactiveMobileReference($entity, $id, false);
+    }
+
+    private function assertMobileLotUsable(string $lotId, string $cultivoId = ''): array
+    {
+        $lot = $this->assertActiveMobileReference('lotes', $lotId, 'lote');
+        $this->assertActiveMobileReference('fincas', (string)($lot['finca_id'] ?? ''), 'finca');
+        $serverCrop = trim((string)($lot['cultivo_id'] ?? ''));
+        if ($serverCrop !== '') $this->assertActiveMobileReference('cultivos', $serverCrop, 'cultivo');
+        if ($cultivoId !== '') $this->assertActiveMobileReference('cultivos', $cultivoId, 'cultivo');
+        return $lot;
+    }
+
+    private function assertMobileLaborUsable(string $laborId): array
+    {
+        $labor = $this->assertActiveMobileReference('labores', $laborId, 'labor');
+        $this->assertActiveMobileReference('cultivos', (string)($labor['cultivo_id'] ?? ''), 'cultivo');
+        $categoryId = trim((string)($labor['categoria_labor_id'] ?? ''));
+        if ($categoryId !== '') $this->assertActiveMobileReference('categorias_labor', $categoryId, 'categoría de labor');
+        return $labor;
+    }
+
+    private function assertMobileFormulaUsable(string $formulaId): array
+    {
+        $formula = $this->assertActiveMobileReference('formulas', $formulaId, 'fórmula');
+        $inactiveInputs = $this->model->queryPrepared(
+            "SELECT i.id FROM formulas_detalle fd
+             JOIN insumos i ON i.id=fd.insumo_id
+             WHERE fd.formula_id=:formula AND fd.voided='1' AND i.voided<>'1' LIMIT 1",
+            [':formula'=>$formulaId]
+        );
+        if ($inactiveInputs) $this->rejectInactiveMobileReference('insumo', (string)$inactiveInputs[0]['id'], false);
+        return $formula;
+    }
+
+    public function authenticateMobileToken(string $token): ?string
+    {
+        if ($token === '') return null;
+        $rows = $this->model->queryPrepared(
+            "SELECT t.id,t.user_id
+             FROM auth_tokens t JOIN `user` u ON u.id=t.user_id
+             WHERE t.token_hash=:hash AND t.revoked_at IS NULL
+               AND t.expires_at>:ahora AND u.void='1' LIMIT 1",
+            [':hash'=>hash('sha256', $token), ':ahora'=>date('Y-m-d H:i:s')]
+        );
+        if (!$rows) return null;
+        $this->model->executePrepared(
+            "UPDATE auth_tokens SET last_used_at=:ahora WHERE id=:id",
+            [':id'=>$rows[0]['id'], ':ahora'=>date('Y-m-d H:i:s')]
+        );
+        return (string)$rows[0]['user_id'];
+    }
+
+    public function logoutMobile(array $data): void
+    {
+        $token = trim((string)($data['api_token'] ?? ''));
+        $usuarioId = trim((string)($data['authenticated_user_id'] ?? ''));
+        if ($token === '' || $usuarioId === '') {
+            service_return(['success'=>false,'message'=>'La sesión móvil no es válida.','data'=>[]]);
+        }
+        $this->model->executePrepared(
+            "UPDATE auth_tokens
+             SET revoked_at=:ahora
+             WHERE token_hash=:hash AND user_id=:usuario AND revoked_at IS NULL",
+            [
+                ':ahora'=>date('Y-m-d H:i:s'),
+                ':hash'=>hash('sha256', $token),
+                ':usuario'=>$usuarioId,
+            ]
+        );
+        service_return(['data'=>[],'message'=>'Sesión móvil cerrada correctamente.']);
+    }
+
+    public function canMobileMutation(string $usuarioId, string $method, array $data): bool
+    {
+        if (in_array($method, ['asignarFincaTecnico','saveAsignacionesFincasMobile'], true)) {
+            return $this->mobileUserCan($usuarioId, 'tecnicos', 'asignar_fincas');
+        }
+        $catalogs = [
+            'createFormula'=>['formulas','formulas'],
+            'createDetalleFormula'=>['formulas','formulas_detalle'],
+            'createInsumo'=>['insumos','insumos'],
+            'createLabor'=>['labores','labores'],
+            'createCategoriaLabor'=>['categorias_labor','categorias_labor'],
+            'createCultivo'=>['cultivos','cultivos'],
+            'createLote'=>['lotes','lotes'],
+            'createFinca'=>['fincas','fincas'],
+            'createRecomendacion'=>['recomendaciones','recomendaciones'],
+        ];
+        if (isset($catalogs[$method])) {
+            [$module,$table] = $catalogs[$method];
+            $id = trim((string)($data['id'] ?? ''));
+            $exists = $id !== '' && !empty($this->model->queryPrepared(
+                "SELECT id FROM `{$table}` WHERE id=:id LIMIT 1",
+                [':id'=>$id]
+            ));
+            if (!$this->mobileUserCan($usuarioId, $module, $exists ? 'editar' : 'crear')) return false;
+            if ($method === 'createFinca') {
+                $tecnicoId = trim((string)($data['tecnico_id'] ?? ''));
+                if ($tecnicoId !== '' && $tecnicoId !== $usuarioId) {
+                    return $this->mobileUserCan($usuarioId, 'tecnicos', 'asignar_fincas');
+                }
+            }
+            return true;
+        }
+
+        $visitMethods = [
+            'createVisitaDetalleRecomendacion','createVisitaDetalleFormula',
+            'createActividad','createHallazgo','createVisitaDetalleLote',
+        ];
+        if (in_array($method, $visitMethods, true)) {
+            return $this->mobileUserCan($usuarioId, 'visitas', 'editar');
+        }
+        if ($method === 'createVisita') {
+            $id = trim((string)($data['id'] ?? ''));
+            $exists = $id !== '' && !empty($this->model->queryPrepared(
+                "SELECT id FROM visitas_tecnicas WHERE id=:id LIMIT 1",
+                [':id'=>$id]
+            ));
+            return $this->mobileUserCan($usuarioId, 'visitas', $exists ? 'editar' : 'crear');
+        }
+        if ($method === 'saveAgendaVisita') {
+            $id = trim((string)($data['id'] ?? ''));
+            $exists = $id !== '' && !empty($this->model->queryPrepared(
+                "SELECT id FROM agenda_visitas WHERE id=:id LIMIT 1",
+                [':id'=>$id]
+            ));
+            return $this->mobileUserCan($usuarioId, 'agenda', $exists ? 'editar' : 'crear');
+        }
+        return false;
+    }
+
     public function validSystem($data)
     {
         $data_cliente = [
@@ -395,6 +621,90 @@ class AgronomoController extends ControllerBase
         service_return(['data' => $finca_id, 'message' => 'Finca asignada al técnico con éxito!']);
     }
 
+    public function getAsignacionesFincasMobile($data)
+    {
+        $tecnicoId = trim((string)($data['tecnico_id'] ?? ''));
+        if ($tecnicoId === '') {
+            service_return(['success'=>false,'message'=>'Debes seleccionar un técnico.','data'=>[]]);
+        }
+        $rows = $this->model->queryPrepared(
+            "SELECT f.id,f.descripcion,COALESCE(f.ubicacion,'') AS ubicacion,
+                    CASE WHEN uf.finca_id IS NULL THEN 0 ELSE 1 END AS asignada
+             FROM fincas f
+             LEFT JOIN usuario_fincas uf
+               ON uf.finca_id=f.id AND uf.usuario_id=:usuario
+             WHERE f.voided='1'
+             ORDER BY f.descripcion",
+            [':usuario'=>$tecnicoId]
+        );
+        service_return([
+            'data'=>$rows,
+            'message'=>'Fincas y asignaciones consultadas con éxito.'
+        ]);
+    }
+
+    public function saveAsignacionesFincasMobile($data)
+    {
+        $tecnicoId = trim((string)($data['tecnico_id'] ?? ''));
+        $fincaIds = array_values(array_unique(array_filter(array_map(
+            'strval',
+            is_array($data['finca_ids'] ?? null) ? $data['finca_ids'] : []
+        ))));
+        if ($tecnicoId === '') {
+            service_return(['success'=>false,'message'=>'Debes seleccionar un técnico.','data'=>[]]);
+        }
+        $tecnico = $this->model->queryPrepared(
+            "SELECT id FROM `user` WHERE id=:id AND void='1' LIMIT 1",
+            [':id'=>$tecnicoId]
+        );
+        if (!$tecnico) {
+            service_return(['success'=>false,'message'=>'El técnico no existe o está inactivo.','data'=>[]]);
+        }
+        if ($fincaIds) {
+            $placeholders = [];
+            $params = [];
+            foreach ($fincaIds as $index=>$fincaId) {
+                $key = ':finca_'.$index;
+                $placeholders[] = $key;
+                $params[$key] = $fincaId;
+            }
+            $validas = $this->model->queryPrepared(
+                "SELECT id FROM fincas WHERE voided='1' AND id IN (".implode(',', $placeholders).")",
+                $params
+            );
+            if (count($validas) !== count($fincaIds)) {
+                service_return(['success'=>false,'message'=>'Una o más fincas ya no están disponibles. Actualiza los datos.','data'=>[]]);
+            }
+        }
+
+        $this->model->beginTransaction();
+        try {
+            $this->model->executePrepared(
+                "DELETE FROM usuario_fincas WHERE usuario_id=:usuario",
+                [':usuario'=>$tecnicoId]
+            );
+            foreach ($fincaIds as $fincaId) {
+                $this->model->executePrepared(
+                    "INSERT INTO usuario_fincas(usuario_id,finca_id,created_by)
+                     VALUES(:usuario,:finca,:actor)",
+                    [
+                        ':usuario'=>$tecnicoId,
+                        ':finca'=>$fincaId,
+                        ':actor'=>(string)($data['created_by'] ?? ''),
+                    ]
+                );
+            }
+            $this->model->commit();
+        } catch (Throwable $e) {
+            $this->model->rollBack();
+            throw $e;
+        }
+        service_return([
+            'data'=>['tecnico_id'=>$tecnicoId,'total'=>count($fincaIds)],
+            'message'=>'Asignaciones guardadas correctamente.'
+        ]);
+    }
+
     public function getVisitasPorTecnico($data)
     {
         $a = $this->model;
@@ -524,11 +834,20 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
-        $where['id'] = $data['id'];
+        // El móvil manda siempre el mismo id literal ('configuracion_actual')
+        // para su única fila local, sin importar qué técnico esté logueado
+        // — no sirve para identificar la fila en el servidor, donde debe
+        // haber una por técnico. La identidad confiable es created_by (fijado
+        // arriba en router.php desde el token autenticado, nunca desde el
+        // JSON del dispositivo), así que se busca y guarda por usuario_id
+        // usando ese valor en vez del id que mandó el cliente.
+        $where['usuario_id'] = $data['created_by'];
         $sql_data = crearSentenciaSelect(['tabla' => 'configuracion_usuario', 'where' => $where]);
         $data_select = $a->executeScript(['sql' => $sql_data]);
 
         if (empty($data_select)) {
+            $data['id'] = $data['created_by'];
+            $data['usuario_id'] = $data['created_by'];
             $data['sync'] = '1';
             $sql = crearSentenciaInsert(['tabla' => 'configuracion_usuario', 'conten' => $data]);
             $a->executeScript(['sql' => $sql]);
@@ -546,8 +865,9 @@ class AgronomoController extends ControllerBase
             $data_query['created_at'] = $data['created_at'];
             $data_query['updated_at'] = $data['updated_at'];
             $data_query['created_by'] = $data['created_by'];
+            $data_query['usuario_id'] = $data['created_by'];
 
-            $data_where['id'] = $data['id'];
+            $data_where['usuario_id'] = $data['created_by'];
 
             $sql_mast = crearSentenciaUpdate(['tabla' => 'configuracion_usuario', 'sets' => $data_query, 'where' => $data_where]);
             $a->executeScript([
@@ -644,6 +964,12 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
+        $formulaId = trim((string)($data['formula_id'] ?? ''));
+        $insumoId = trim((string)($data['insumo_id'] ?? ''));
+        if ((string)($data['voided'] ?? '1') !== '0') {
+            if ($formulaId !== '') $this->assertMobileFormulaUsable($formulaId);
+            if ($insumoId !== '') $this->assertActiveMobileReference('insumos', $insumoId, 'insumo');
+        }
         $where['id'] = $data['id'];
         $sql_data = crearSentenciaSelect(['tabla' => 'visita_detalles_formulas', 'where' => $where]);
         $data_select = $a->executeScript(['sql' => $sql_data]);
@@ -728,6 +1054,7 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
+        if ((string)($data['voided'] ?? '1') !== '0') $this->assertMobileLaborUsable(trim((string)($data['labor_id'] ?? '')));
         $where['id'] = $data['id'];
         $sql_data = crearSentenciaSelect(['tabla' => 'visita_detalles_actividades', 'where' => $where]);
 
@@ -890,6 +1217,12 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
+        if ((string)($data['voided'] ?? '1') !== '0') {
+            $this->assertMobileLotUsable(
+                trim((string)($data['lote_id'] ?? '')),
+                trim((string)($data['cultivo_id'] ?? ''))
+            );
+        }
         $where['id'] = $data['id'];
         $sql_data = crearSentenciaSelect(['tabla' => 'visita_detalles_lote', 'where' => $where]);
 
@@ -955,6 +1288,7 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
+        if ((string)($data['voided'] ?? '1') !== '0') $this->assertActiveMobileReference('fincas', trim((string)($data['finca_id'] ?? '')), 'finca');
         $where['id'] = $data['id'];
         $sql_data = crearSentenciaSelect(['tabla' => 'visitas_tecnicas', 'where' => $where]);
         $data_select = $a->executeScript(['sql' => $sql_data]);
@@ -1172,26 +1506,33 @@ class AgronomoController extends ControllerBase
             }
         }
 
+        $now = date('Y-m-d H:i:s');
         $params = [
             ':id' => $id !== '' ? $id : bin2hex(random_bytes(16)),
             ':finca' => $fincaId, ':usuario' => $usuarioId,
             ':fecha' => $fechaInicio, ':duracion' => $duracion,
             ':objetivo' => $objetivo, ':observacion' => $observacion !== '' ? $observacion : null,
-            ':estado' => $estado, ':actor' => $sessionUserId,
+            ':estado' => $estado, ':actor' => $sessionUserId, ':now' => $now,
         ];
 
         if ($id === '') {
+            // PDO en este entorno no permite reutilizar el mismo parámetro
+            // nombrado dos veces en la misma consulta ("Invalid parameter
+            // number"), así que created_at y updated_at necesitan cada uno
+            // su propio placeholder aunque compartan el mismo valor.
+            $insertParams = $params;
+            $insertParams[':created_at'] = $now;
             $this->model->executePrepared(
                 "INSERT INTO agenda_visitas(id,finca_id,usuario_id,fecha_inicio,duracion_minutos,objetivo,observacion,estado,sync,voided,created_at,updated_at,created_by)
-                 VALUES(:id,:finca,:usuario,:fecha,:duracion,:objetivo,:observacion,:estado,'1','1',NOW(),NOW(),:actor)",
-                $params
+                 VALUES(:id,:finca,:usuario,:fecha,:duracion,:objetivo,:observacion,:estado,'1','1',:created_at,:now,:actor)",
+                $insertParams
             );
             $message = 'Visita programada con éxito.';
         } else {
             $updateParams = $params;
             unset($updateParams[':actor']);
             $this->model->executePrepared(
-                "UPDATE agenda_visitas SET finca_id=:finca,usuario_id=:usuario,fecha_inicio=:fecha,duracion_minutos=:duracion,objetivo=:objetivo,observacion=:observacion,estado=:estado,sync='1',updated_at=NOW() WHERE id=:id",
+                "UPDATE agenda_visitas SET finca_id=:finca,usuario_id=:usuario,fecha_inicio=:fecha,duracion_minutos=:duracion,objetivo=:objetivo,observacion=:observacion,estado=:estado,sync='1',updated_at=:now WHERE id=:id",
                 $updateParams
             );
             $message = 'Programación actualizada con éxito.';
@@ -1214,8 +1555,8 @@ class AgronomoController extends ControllerBase
         }
         $this->assertFincaAccesible((string)$existing[0]['finca_id']);
         $this->model->executePrepared(
-            "UPDATE agenda_visitas SET estado = :estado, sync = '1', updated_at = NOW() WHERE id = :id",
-            [':id' => $id, ':estado' => $estado]
+            "UPDATE agenda_visitas SET estado = :estado, sync = '1', updated_at = :now WHERE id = :id",
+            [':id' => $id, ':estado' => $estado, ':now' => date('Y-m-d H:i:s')]
         );
         $this->auditWeb('AGENDA_ESTADO', $id . ' · ' . $estado);
         service_return(['data' => ['id' => $id, 'estado' => $estado], 'message' => 'Estado actualizado.']);
@@ -1279,21 +1620,22 @@ class AgronomoController extends ControllerBase
             [':usuario_id' => $usuarioId]
         );
 
+        $now = date('Y-m-d H:i:s');
         if ($existing) {
             $id = $existing[0]['id'];
             $this->model->executePrepared(
                 "UPDATE configuracion_usuario SET nombre = :nombre, titulo = :titulo,
                  tarjeta_profesional = :tarjeta, celular = :celular, firma_base64 = NULLIF(:firma, ''),
-                 sync = '1', voided = '1', updated_at = NOW() WHERE id = :id",
-                [':nombre' => $nombre, ':titulo' => $titulo, ':tarjeta' => $tarjeta, ':celular' => $celular, ':firma' => $firma, ':id' => $id]
+                 sync = '1', voided = '1', updated_at = :now WHERE id = :id",
+                [':nombre' => $nombre, ':titulo' => $titulo, ':tarjeta' => $tarjeta, ':celular' => $celular, ':firma' => $firma, ':id' => $id, ':now' => $now]
             );
             $message = 'Perfil actualizado con éxito.';
         } else {
             $id = bin2hex(random_bytes(16));
             $this->model->executePrepared(
                 "INSERT INTO configuracion_usuario (id, usuario_id, nombre, titulo, tarjeta_profesional, celular, firma_base64, sync, voided, created_at, updated_at, created_by)
-                 VALUES (:id, :usuario_id, :nombre, :titulo, :tarjeta, :celular, NULLIF(:firma, ''), '1', '1', NOW(), NOW(), :usuario_id2)",
-                [':id' => $id, ':usuario_id' => $usuarioId, ':nombre' => $nombre, ':titulo' => $titulo, ':tarjeta' => $tarjeta, ':celular' => $celular, ':firma' => $firma, ':usuario_id2' => $usuarioId]
+                 VALUES (:id, :usuario_id, :nombre, :titulo, :tarjeta, :celular, NULLIF(:firma, ''), '1', '1', :created_at, :now, :usuario_id2)",
+                [':id' => $id, ':usuario_id' => $usuarioId, ':nombre' => $nombre, ':titulo' => $titulo, ':tarjeta' => $tarjeta, ':celular' => $celular, ':firma' => $firma, ':usuario_id2' => $usuarioId, ':now' => $now, ':created_at' => $now]
             );
             $message = 'Perfil creado con éxito.';
         }
@@ -1345,10 +1687,10 @@ class AgronomoController extends ControllerBase
                     ELSE 'preventiva' END AS nivel
              FROM (
                 SELECT f.id AS finca_id,f.descripcion AS finca_nombre,
-                       CASE pc.tipo WHEN 'GLOBALGAP' THEN 'GlobalG.A.P.' WHEN 'RAINFOREST' THEN 'Rainforest'
-                            WHEN 'FAIRTRADE' THEN 'Fairtrade' ELSE 'Análisis microbiológico' END AS documento,
+                       COALESCE(tc.nombre,pc.tipo) AS documento,
                        pc.valido_hasta AS fecha_vencimiento,DATEDIFF(pc.valido_hasta,CURDATE()) AS dias_restantes
                 FROM predio_certificaciones pc JOIN fincas f ON f.id=pc.finca_id
+                LEFT JOIN tipos_certificacion tc ON tc.codigo=pc.tipo
                 WHERE pc.vigente=1 AND f.voided='1'
                 UNION ALL
                 SELECT f.id,f.descripcion,'Registro ICA',f.vencimiento_ica,DATEDIFF(f.vencimiento_ica,CURDATE())
@@ -1535,12 +1877,16 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
+        $this->assertMobileCatalogNotReactivated('labores', trim((string)($data['id'] ?? '')), 'labor', $data);
+        $activeLaborMutation = (string)($data['voided'] ?? '1') !== '0';
+        if ($activeLaborMutation) $this->assertActiveMobileReference('cultivos', trim((string)($data['cultivo_id'] ?? '')), 'cultivo');
 
         // categoria_labor_id es una FK opcional. Los helpers crearSentenciaInsert
         // /Update siempre escriben el valor como cadena, así que un valor vacío
         // rompería la restricción FK; se guarda aparte con NULLIF para permitir
         // "sin categoría" de forma segura, tanto al crear como al editar.
         $categoriaLaborId = trim((string)($data['categoria_labor_id'] ?? ''));
+        if ($activeLaborMutation && $categoriaLaborId !== '') $this->assertActiveMobileReference('categorias_labor', $categoriaLaborId, 'categoría de labor');
         unset($data['categoria_labor_id']);
 
         $where['id'] = $data['id'];
@@ -1602,19 +1948,9 @@ class AgronomoController extends ControllerBase
         if ($formulaId === '' || $insumoId === '') {
             service_return(['success' => false, 'message' => 'La fórmula y el insumo son obligatorios.', 'data' => []]);
         }
-        $formulaExiste = $a->queryPrepared(
-            "SELECT id FROM formulas WHERE id=:id LIMIT 1",
-            [':id' => $formulaId]
-        );
-        if (!$formulaExiste) {
-            service_return(['success' => false, 'message' => 'La fórmula asociada no existe en el servidor. Debe sincronizarse antes que su detalle.', 'data' => ['dependency' => 'formula', 'id' => $formulaId]]);
-        }
-        $insumoExiste = $a->queryPrepared(
-            "SELECT id FROM insumos WHERE id=:id LIMIT 1",
-            [':id' => $insumoId]
-        );
-        if (!$insumoExiste) {
-            service_return(['success' => false, 'message' => 'El insumo asociado no existe en el servidor. Debe sincronizarse antes que el detalle.', 'data' => ['dependency' => 'insumo', 'id' => $insumoId]]);
+        if ((string)($data['voided'] ?? '1') !== '0') {
+            $this->assertActiveMobileReference('formulas', $formulaId, 'fórmula');
+            $this->assertActiveMobileReference('insumos', $insumoId, 'insumo');
         }
 
         $where['id'] = $data['id'];
@@ -1668,6 +2004,7 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
+        $this->assertMobileCatalogNotReactivated('formulas', trim((string)($data['id'] ?? '')), 'fórmula', $data);
 
 
         $where['id'] = $data['id'];
@@ -1830,14 +2167,14 @@ class AgronomoController extends ControllerBase
                 $id = $this->nextUserId();
                 $this->model->executePrepared(
                     "INSERT INTO `user` (id,name,`user`,code,password_hash,mail,void,roll,rol_id,pass_provi,user_crea,date_crea)
-                     VALUES (:id,:name,:usuario,:code,:hash,:mail,'1',:roll,:rol,'1',:actor,NOW())",
-                    [':id'=>$id,':name'=>$name,':usuario'=>$username,':code'=>$temporaryPassword,':hash'=>password_hash($temporaryPassword,PASSWORD_DEFAULT),':mail'=>$mail,':roll'=>$legacyRoll,':rol'=>$roleId,':actor'=>$_SESSION['agronomo_user_id'] ?? '']
+                     VALUES (:id,:name,:usuario,:code,:hash,:mail,'1',:roll,:rol,'1',:actor,:now)",
+                    [':id'=>$id,':name'=>$name,':usuario'=>$username,':code'=>$temporaryPassword,':hash'=>password_hash($temporaryPassword,PASSWORD_DEFAULT),':mail'=>$mail,':roll'=>$legacyRoll,':rol'=>$roleId,':actor'=>$_SESSION['agronomo_user_id'] ?? '',':now'=>date('Y-m-d H:i:s')]
                 );
                 $message = 'Usuario creado con éxito.';
             } else {
                 $this->model->executePrepared(
-                    "UPDATE `user` SET name=:name,`user`=:usuario,mail=:mail,roll=:roll,rol_id=:rol,user_modify=:actor,date_modify=NOW() WHERE id=:id",
-                    [':id'=>$id,':name'=>$name,':usuario'=>$username,':mail'=>$mail,':roll'=>$legacyRoll,':rol'=>$roleId,':actor'=>$_SESSION['agronomo_user_id'] ?? '']
+                    "UPDATE `user` SET name=:name,`user`=:usuario,mail=:mail,roll=:roll,rol_id=:rol,user_modify=:actor,date_modify=:now WHERE id=:id",
+                    [':id'=>$id,':name'=>$name,':usuario'=>$username,':mail'=>$mail,':roll'=>$legacyRoll,':rol'=>$roleId,':actor'=>$_SESSION['agronomo_user_id'] ?? '',':now'=>date('Y-m-d H:i:s')]
                 );
                 $message = 'Usuario actualizado con éxito.';
             }
@@ -1870,7 +2207,7 @@ class AgronomoController extends ControllerBase
         if ($id === '' || $id === (string)($_SESSION['agronomo_user_id'] ?? '')) {
             service_return(['success'=>false,'message'=>'No puedes desactivar tu propia cuenta.','data'=>[]]);
         }
-        $this->model->executePrepared("UPDATE `user` SET void=IF(void='1','0','1'),user_modify=:actor,date_modify=NOW() WHERE id=:id", [':id'=>$id,':actor'=>$_SESSION['agronomo_user_id'] ?? '']);
+        $this->model->executePrepared("UPDATE `user` SET void=IF(void='1','0','1'),user_modify=:actor,date_modify=:now WHERE id=:id", [':id'=>$id,':actor'=>$_SESSION['agronomo_user_id'] ?? '',':now'=>date('Y-m-d H:i:s')]);
         $this->auditWeb('USUARIO_ESTADO', $id);
         service_return(['data'=>['id'=>$id],'message'=>'Estado del usuario actualizado.']);
     }
@@ -1883,8 +2220,8 @@ class AgronomoController extends ControllerBase
         if (!$exists) service_return(['success'=>false,'message'=>'El usuario no existe o está inactivo.','data'=>[]]);
         $password = (string)random_int(1000, 9999);
         $this->model->executePrepared(
-            "UPDATE `user` SET code=:code,password_hash=:hash,pass_provi='1',user_modify=:actor,date_modify=NOW() WHERE id=:id",
-            [':id'=>$id,':code'=>$password,':hash'=>password_hash($password,PASSWORD_DEFAULT),':actor'=>$_SESSION['agronomo_user_id'] ?? '']
+            "UPDATE `user` SET code=:code,password_hash=:hash,pass_provi='1',user_modify=:actor,date_modify=:now WHERE id=:id",
+            [':id'=>$id,':code'=>$password,':hash'=>password_hash($password,PASSWORD_DEFAULT),':actor'=>$_SESSION['agronomo_user_id'] ?? '',':now'=>date('Y-m-d H:i:s')]
         );
         $this->auditWeb('PASSWORD_RESTABLECIDO', $id);
         service_return(['data'=>['id'=>$id,'provisional_password'=>$password],'message'=>'Clave provisional generada. El usuario deberá cambiarla al ingresar.']);
@@ -1900,8 +2237,8 @@ class AgronomoController extends ControllerBase
             service_return(['success'=>false,'message'=>'Usa al menos una letra y un número.','data'=>[]]);
         }
         $this->model->executePrepared(
-            "UPDATE `user` SET code=:code,password_hash=:hash,pass_provi='0',user_modify=:actor,date_modify=NOW() WHERE id=:id AND pass_provi='1'",
-            [':id'=>$id,':code'=>$password,':hash'=>password_hash($password,PASSWORD_DEFAULT),':actor'=>$id]
+            "UPDATE `user` SET code=:code,password_hash=:hash,pass_provi='0',user_modify=:actor,date_modify=:now WHERE id=:id AND pass_provi='1'",
+            [':id'=>$id,':code'=>$password,':hash'=>password_hash($password,PASSWORD_DEFAULT),':actor'=>$id,':now'=>date('Y-m-d H:i:s')]
         );
         $_SESSION['agronomo_pass_provi'] = '0';
         $this->auditWeb('PASSWORD_PROVISIONAL_CAMBIADO', $id);
@@ -2009,13 +2346,13 @@ class AgronomoController extends ControllerBase
             $exists = $this->model->queryPrepared("SELECT id FROM insumos WHERE id=:id", [':id'=>$id]);
             if ($exists) service_return(['success'=>false,'message'=>'El código del insumo ya está registrado.','data'=>[]]);
             $this->model->executePrepared(
-                "INSERT INTO insumos(id,nombre,unidad_medida,categoria,sync,voided,created_at,updated_at,created_by) VALUES(:id,:nombre,:unidad,:categoria,'1','1',NOW(),NOW(),:actor)",
-                [':id'=>$id,':nombre'=>$nombre,':unidad'=>$unidad,':categoria'=>$categoria,':actor'=>$_SESSION['agronomo_user_id'] ?? '']
+                "INSERT INTO insumos(id,nombre,unidad_medida,categoria,sync,voided,created_at,updated_at,created_by) VALUES(:id,:nombre,:unidad,:categoria,'1','1',:created_at,:now,:actor)",
+                [':id'=>$id,':nombre'=>$nombre,':unidad'=>$unidad,':categoria'=>$categoria,':actor'=>$_SESSION['agronomo_user_id'] ?? '',':now'=>date('Y-m-d H:i:s'),':created_at'=>date('Y-m-d H:i:s')]
             );
         } else {
             $this->model->executePrepared(
-                "UPDATE insumos SET nombre=:nombre,unidad_medida=:unidad,categoria=:categoria,sync='1',updated_at=NOW() WHERE id=:id",
-                [':id'=>$originalId,':nombre'=>$nombre,':unidad'=>$unidad,':categoria'=>$categoria]
+                "UPDATE insumos SET nombre=:nombre,unidad_medida=:unidad,categoria=:categoria,sync='1',updated_at=:now WHERE id=:id",
+                [':id'=>$originalId,':nombre'=>$nombre,':unidad'=>$unidad,':categoria'=>$categoria,':now'=>date('Y-m-d H:i:s')]
             );
             $id = $originalId;
         }
@@ -2026,7 +2363,7 @@ class AgronomoController extends ControllerBase
     public function toggleInsumoWeb($data)
     {
         $id = trim((string)($data['id'] ?? ''));
-        $this->model->executePrepared("UPDATE insumos SET voided=IF(voided='1','0','1'),sync='1',updated_at=NOW() WHERE id=:id", [':id'=>$id]);
+        $this->model->executePrepared("UPDATE insumos SET voided=IF(voided='1','0','1'),sync='1',updated_at=:now WHERE id=:id", [':id'=>$id,':now'=>date('Y-m-d H:i:s')]);
         $this->auditWeb('INSUMO_ESTADO', $id);
         service_return(['data'=>['id'=>$id],'message'=>'Estado del insumo actualizado.']);
     }
@@ -2046,15 +2383,16 @@ class AgronomoController extends ControllerBase
                 service_return(['success'=>false,'message'=>'Cada grupo requiere al menos un insumo y una dosis.','data'=>[]]);
             }
         }
+        $now = date('Y-m-d H:i:s');
         if ($id === '') {
             $id = substr(bin2hex(random_bytes(10)), 0, 20);
             $this->model->executePrepared(
-                "INSERT INTO formulas(id,descripcion,unidad,observacion,sync,voided,created_at,updated_at,created_by) VALUES(:id,:descripcion,:unidad,:observacion,'1','1',NOW(),NOW(),:actor)",
-                [':id'=>$id,':descripcion'=>$descripcion,':unidad'=>$unidad,':observacion'=>$observacion,':actor'=>$_SESSION['agronomo_user_id'] ?? '']
+                "INSERT INTO formulas(id,descripcion,unidad,observacion,sync,voided,created_at,updated_at,created_by) VALUES(:id,:descripcion,:unidad,:observacion,'1','1',:created_at,:now,:actor)",
+                [':id'=>$id,':descripcion'=>$descripcion,':unidad'=>$unidad,':observacion'=>$observacion,':actor'=>$_SESSION['agronomo_user_id'] ?? '',':now'=>$now,':created_at'=>$now]
             );
         } else {
-            $this->model->executePrepared("UPDATE formulas SET descripcion=:descripcion,unidad=:unidad,observacion=:observacion,sync='1',updated_at=NOW() WHERE id=:id", [':id'=>$id,':descripcion'=>$descripcion,':unidad'=>$unidad,':observacion'=>$observacion]);
-            $this->model->executePrepared("UPDATE formulas_detalle SET voided='0',sync='1',updated_at=NOW() WHERE formula_id=:formula AND voided='1'", [':formula'=>$id]);
+            $this->model->executePrepared("UPDATE formulas SET descripcion=:descripcion,unidad=:unidad,observacion=:observacion,sync='1',updated_at=:now WHERE id=:id", [':id'=>$id,':descripcion'=>$descripcion,':unidad'=>$unidad,':observacion'=>$observacion,':now'=>$now]);
+            $this->model->executePrepared("UPDATE formulas_detalle SET voided='0',sync='1',updated_at=:now WHERE formula_id=:formula AND voided='1'", [':formula'=>$id,':now'=>$now]);
         }
         foreach ($grupos as $grupo) {
             $insumoIds = array_values(array_unique(array_filter(array_map('strval', is_array($grupo['insumo_ids'] ?? null) ? $grupo['insumo_ids'] : []))));
@@ -2063,8 +2401,8 @@ class AgronomoController extends ControllerBase
             foreach ($insumoIds as $insumoId) {
                 $detailId = substr(bin2hex(random_bytes(10)), 0, 20);
                 $this->model->executePrepared(
-                    "INSERT INTO formulas_detalle(id,formula_id,grupo_id,insumo_id,dosis,observacion,sync,voided,created_at,updated_at,created_by) VALUES(:id,:formula,:grupo,:insumo,:dosis,:observacion,'1','1',NOW(),NOW(),:actor)",
-                    [':id'=>$detailId,':formula'=>$id,':grupo'=>$groupId,':insumo'=>$insumoId,':dosis'=>$dosis,':observacion'=>trim((string)($grupo['observacion'] ?? '')),':actor'=>$_SESSION['agronomo_user_id'] ?? '']
+                    "INSERT INTO formulas_detalle(id,formula_id,grupo_id,insumo_id,dosis,observacion,sync,voided,created_at,updated_at,created_by) VALUES(:id,:formula,:grupo,:insumo,:dosis,:observacion,'1','1',:created_at,:now,:actor)",
+                    [':id'=>$detailId,':formula'=>$id,':grupo'=>$groupId,':insumo'=>$insumoId,':dosis'=>$dosis,':observacion'=>trim((string)($grupo['observacion'] ?? '')),':actor'=>$_SESSION['agronomo_user_id'] ?? '',':now'=>$now,':created_at'=>$now]
                 );
             }
         }
@@ -2078,8 +2416,9 @@ class AgronomoController extends ControllerBase
         $rows = $this->model->queryPrepared("SELECT voided FROM formulas WHERE id=:id", [':id'=>$id]);
         if (!$rows) service_return(['success'=>false,'message'=>'La fórmula no existe.','data'=>[]]);
         $next = $rows[0]['voided'] === '1' ? '0' : '1';
-        $this->model->executePrepared("UPDATE formulas SET voided=:estado,sync='1',updated_at=NOW() WHERE id=:id", [':id'=>$id,':estado'=>$next]);
-        $this->model->executePrepared("UPDATE formulas_detalle SET voided=:estado,sync='1',updated_at=NOW() WHERE formula_id=:id", [':id'=>$id,':estado'=>$next]);
+        $now = date('Y-m-d H:i:s');
+        $this->model->executePrepared("UPDATE formulas SET voided=:estado,sync='1',updated_at=:now WHERE id=:id", [':id'=>$id,':estado'=>$next,':now'=>$now]);
+        $this->model->executePrepared("UPDATE formulas_detalle SET voided=:estado,sync='1',updated_at=:now WHERE formula_id=:id", [':id'=>$id,':estado'=>$next,':now'=>$now]);
         $this->auditWeb('FORMULA_ESTADO', $id);
         service_return(['data'=>['id'=>$id,'voided'=>$next],'message'=>'Estado de la fórmula actualizado.']);
     }
@@ -2162,7 +2501,11 @@ class AgronomoController extends ControllerBase
             service_return(['success'=>false,'message'=>'La finca no existe.','data'=>[]]);
         }
         $certificaciones = $this->model->queryPrepared(
-            "SELECT tipo,vigente,valido_hasta FROM predio_certificaciones WHERE finca_id=:finca ORDER BY tipo",
+            "SELECT pc.tipo,pc.vigente,pc.valido_hasta,COALESCE(tc.nombre,pc.tipo) AS nombre,
+                    COALESCE(tc.requiere_vencimiento,1) AS requiere_vencimiento
+             FROM predio_certificaciones pc
+             LEFT JOIN tipos_certificacion tc ON tc.codigo=pc.tipo
+             WHERE pc.finca_id=:finca ORDER BY nombre",
             [':finca'=>$fincaId]
         );
         service_return(['data' => ['lotes' => $lotes, 'cultivos' => $cultivos, 'usuarios'=>$usuarios, 'predio'=>$predios[0], 'certificaciones'=>$certificaciones], 'message' => 'Finca consultada con éxito.']);
@@ -2209,18 +2552,18 @@ class AgronomoController extends ControllerBase
             $id = bin2hex(random_bytes(16));
             $this->model->executePrepared(
                 "INSERT INTO fincas (id, descripcion, ubicacion, tecnico_id, sync, voided, created_at, updated_at, created_by)
-                 VALUES (:id, :descripcion, :ubicacion, NULLIF(:tecnico_id, ''), '1', '1', NOW(), NOW(), :created_by)",
+                 VALUES (:id, :descripcion, :ubicacion, NULLIF(:tecnico_id, ''), '1', '1', :created_at, :now, :created_by)",
                 [':id'=>$id, ':descripcion'=>$descripcion, ':ubicacion'=>trim((string)($data['ubicacion'] ?? '')),
-                 ':tecnico_id'=>trim((string)($data['tecnico_id'] ?? '')), ':created_by'=>(string)($data['created_by'] ?? '')]
+                 ':tecnico_id'=>trim((string)($data['tecnico_id'] ?? '')), ':created_by'=>(string)($data['created_by'] ?? ''), ':now'=>date('Y-m-d H:i:s'), ':created_at'=>date('Y-m-d H:i:s')]
             );
             $message = 'Finca creada con éxito.';
         } else {
             $this->assertFincaAccesible($id);
             $this->model->executePrepared(
                 "UPDATE fincas SET descripcion=:descripcion, ubicacion=:ubicacion,
-                 tecnico_id=NULLIF(:tecnico_id, ''), updated_at=NOW(), sync='1' WHERE id=:id",
+                 tecnico_id=NULLIF(:tecnico_id, ''), updated_at=:now, sync='1' WHERE id=:id",
                 [':id'=>$id, ':descripcion'=>$descripcion, ':ubicacion'=>trim((string)($data['ubicacion'] ?? '')),
-                 ':tecnico_id'=>trim((string)($data['tecnico_id'] ?? ''))]
+                 ':tecnico_id'=>trim((string)($data['tecnico_id'] ?? '')), ':now'=>date('Y-m-d H:i:s')]
             );
             $message = 'Finca actualizada con éxito.';
         }
@@ -2232,6 +2575,38 @@ class AgronomoController extends ControllerBase
             );
         }
         service_return(['data' => ['id' => $id], 'message' => $message]);
+    }
+
+    public function toggleFincaWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        if ($id === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar una finca.', 'data' => []]);
+        }
+        $this->assertFincaAccesible($id);
+        $this->model->executePrepared(
+            "UPDATE fincas SET voided = IF(voided = '1', '0', '1'), updated_at = :now, sync = '1' WHERE id = :id",
+            [':id' => $id, ':now' => date('Y-m-d H:i:s')]
+        );
+        service_return(['data' => ['id' => $id], 'message' => 'Estado de la finca actualizado.']);
+    }
+
+    public function toggleLoteWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        if ($id === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar un lote.', 'data' => []]);
+        }
+        $lote = $this->model->queryPrepared("SELECT finca_id FROM lotes WHERE id = :id LIMIT 1", [':id' => $id]);
+        if (!$lote) {
+            service_return(['success' => false, 'message' => 'El lote no existe.', 'data' => []]);
+        }
+        $this->assertFincaAccesible($lote[0]['finca_id']);
+        $this->model->executePrepared(
+            "UPDATE lotes SET voided = IF(voided = '1', '0', '1'), updated_at = :now, sync = '1' WHERE id = :id",
+            [':id' => $id, ':now' => date('Y-m-d H:i:s')]
+        );
+        service_return(['data' => ['id' => $id], 'message' => 'Estado del lote actualizado.']);
     }
 
     public function savePredioCompletoWeb($data)
@@ -2250,8 +2625,14 @@ class AgronomoController extends ControllerBase
             service_return(['success'=>false,'message'=>'Indica la fecha de vencimiento del registro ICA.','data'=>[]]);
         }
         foreach (($data['certificaciones'] ?? []) as $tipo => $certificacion) {
-            if (is_array($certificacion) && !empty($certificacion['vigente']) && empty($certificacion['valido_hasta'])) {
-                service_return(['success'=>false,'message'=>'Indica la fecha de vigencia de la certificación ' . $tipo . '.','data'=>[]]);
+            if (!is_array($certificacion) || empty($certificacion['vigente'])) continue;
+            $catalogo = $this->model->queryPrepared(
+                "SELECT codigo,nombre,requiere_vencimiento FROM tipos_certificacion WHERE codigo=:codigo LIMIT 1",
+                [':codigo'=>(string)$tipo]
+            );
+            if (!$catalogo) service_return(['success'=>false,'message'=>'La certificación seleccionada ya no existe en el catálogo.','data'=>[]]);
+            if (!empty($catalogo[0]['requiere_vencimiento']) && empty($certificacion['valido_hasta'])) {
+                service_return(['success'=>false,'message'=>'Indica la fecha de vigencia de ' . $catalogo[0]['nombre'] . '.','data'=>[]]);
             }
         }
         $departamentoId = (int)($predio['departamento_id'] ?? 0);
@@ -2290,16 +2671,16 @@ class AgronomoController extends ControllerBase
             $productorId = bin2hex(random_bytes(16));
             $this->model->executePrepared("INSERT INTO productores (id,tipo,nombre,cedula,nit,dv,telefono,correo) VALUES (:id,:tipo,:nombre,:cedula,:nit,:dv,:telefono,:correo)", array_merge([':id'=>$productorId], $productorParams));
         } else {
-            $this->model->executePrepared("UPDATE productores SET tipo=:tipo,nombre=:nombre,cedula=:cedula,nit=:nit,dv=:dv,telefono=:telefono,correo=:correo,updated_at=NOW() WHERE id=:id", array_merge([':id'=>$productorId], $productorParams));
+            $this->model->executePrepared("UPDATE productores SET tipo=:tipo,nombre=:nombre,cedula=:cedula,nit=:nit,dv=:dv,telefono=:telefono,correo=:correo,updated_at=:now WHERE id=:id", array_merge([':id'=>$productorId, ':now'=>date('Y-m-d H:i:s')], $productorParams));
         }
         $locationParts = array_filter([$territorio[0]['localidad_nombre'] ?? '', $territorio[0]['municipio_nombre'] ?? '', $territorio[0]['departamento_nombre'] ?? '']);
-        $fincaParams = [':id'=>$fincaId,':productor'=>$productorId,':nombre'=>trim((string)$predio['descripcion']),':ubicacion'=>implode(', ', $locationParts),':departamento'=>$territorio[0]['departamento_nombre'],':municipio'=>$territorio[0]['municipio_nombre'],':localidad'=>$territorio[0]['localidad_nombre'] ?? '',':departamento_id'=>$departamentoId,':municipio_id'=>$municipioId,':localidad_id'=>$localidadId ?: null,':estado'=>$predio['estado_predio'] ?? 'ACTIVO',':hectareas'=>($predio['hectareas_totales'] ?? '') !== '' ? $predio['hectareas_totales'] : null,':latitud'=>($predio['latitud'] ?? '') !== '' ? $predio['latitud'] : null,':longitud'=>($predio['longitud'] ?? '') !== '' ? $predio['longitud'] : null,':url'=>$predio['url_localizacion'] ?? '',':contrato'=>!empty($predio['contrato_proveeduria'])?1:0,':fecha_contrato'=>$predio['fecha_contrato'] ?? '',':vence_contrato'=>$predio['fecha_vencimiento_contrato'] ?? '',':version'=>$predio['version_contrato'] ?? '',':ica'=>!empty($predio['registro_ica'])?1:0,':numero_ica'=>$predio['numero_ica'] ?? '',':vence_ica'=>$predio['vencimiento_ica'] ?? '',':anticipo'=>!empty($predio['anticipo'])?1:0,':valor'=>($predio['valor_anticipo'] ?? '') !== '' ? $predio['valor_anticipo'] : null,':usuario'=>$data['created_by'] ?? ''];
+        $fincaParams = [':id'=>$fincaId,':productor'=>$productorId,':nombre'=>trim((string)$predio['descripcion']),':ubicacion'=>implode(', ', $locationParts),':departamento'=>$territorio[0]['departamento_nombre'],':municipio'=>$territorio[0]['municipio_nombre'],':localidad'=>$territorio[0]['localidad_nombre'] ?? '',':departamento_id'=>$departamentoId,':municipio_id'=>$municipioId,':localidad_id'=>$localidadId ?: null,':estado'=>$predio['estado_predio'] ?? 'ACTIVO',':hectareas'=>($predio['hectareas_totales'] ?? '') !== '' ? $predio['hectareas_totales'] : null,':latitud'=>($predio['latitud'] ?? '') !== '' ? $predio['latitud'] : null,':longitud'=>($predio['longitud'] ?? '') !== '' ? $predio['longitud'] : null,':url'=>$predio['url_localizacion'] ?? '',':contrato'=>!empty($predio['contrato_proveeduria'])?1:0,':fecha_contrato'=>$predio['fecha_contrato'] ?? '',':vence_contrato'=>$predio['fecha_vencimiento_contrato'] ?? '',':version'=>$predio['version_contrato'] ?? '',':ica'=>!empty($predio['registro_ica'])?1:0,':numero_ica'=>$predio['numero_ica'] ?? '',':vence_ica'=>$predio['vencimiento_ica'] ?? '',':anticipo'=>!empty($predio['anticipo'])?1:0,':valor'=>($predio['valor_anticipo'] ?? '') !== '' ? $predio['valor_anticipo'] : null,':usuario'=>$data['created_by'] ?? '',':now'=>date('Y-m-d H:i:s'),':created_at'=>date('Y-m-d H:i:s')];
         if ($existing) {
             $updateParams = $fincaParams;
-            unset($updateParams[':usuario']);
-            $this->model->executePrepared("UPDATE fincas SET productor_id=:productor,descripcion=:nombre,ubicacion=:ubicacion,departamento=:departamento,ciudad=:municipio,vereda=:localidad,departamento_id=:departamento_id,municipio_id=:municipio_id,localidad_rural_id=:localidad_id,estado_predio=:estado,hectareas_totales=:hectareas,latitud=:latitud,longitud=:longitud,url_localizacion=:url,contrato_proveeduria=:contrato,fecha_contrato=NULLIF(:fecha_contrato,''),fecha_vencimiento_contrato=NULLIF(:vence_contrato,''),version_contrato=:version,registro_ica=:ica,numero_ica=:numero_ica,vencimiento_ica=NULLIF(:vence_ica,''),anticipo=:anticipo,valor_anticipo=:valor,sync='1',updated_at=NOW() WHERE id=:id", $updateParams);
+            unset($updateParams[':usuario'], $updateParams[':created_at']);
+            $this->model->executePrepared("UPDATE fincas SET productor_id=:productor,descripcion=:nombre,ubicacion=:ubicacion,departamento=:departamento,ciudad=:municipio,vereda=:localidad,departamento_id=:departamento_id,municipio_id=:municipio_id,localidad_rural_id=:localidad_id,estado_predio=:estado,hectareas_totales=:hectareas,latitud=:latitud,longitud=:longitud,url_localizacion=:url,contrato_proveeduria=:contrato,fecha_contrato=NULLIF(:fecha_contrato,''),fecha_vencimiento_contrato=NULLIF(:vence_contrato,''),version_contrato=:version,registro_ica=:ica,numero_ica=:numero_ica,vencimiento_ica=NULLIF(:vence_ica,''),anticipo=:anticipo,valor_anticipo=:valor,sync='1',updated_at=:now WHERE id=:id", $updateParams);
         } else {
-            $this->model->executePrepared("INSERT INTO fincas (id,productor_id,descripcion,ubicacion,departamento,ciudad,vereda,departamento_id,municipio_id,localidad_rural_id,estado_predio,hectareas_totales,latitud,longitud,url_localizacion,contrato_proveeduria,fecha_contrato,fecha_vencimiento_contrato,version_contrato,registro_ica,numero_ica,vencimiento_ica,anticipo,valor_anticipo,sync,voided,created_at,updated_at,created_by) VALUES (:id,:productor,:nombre,:ubicacion,:departamento,:municipio,:localidad,:departamento_id,:municipio_id,:localidad_id,:estado,:hectareas,:latitud,:longitud,:url,:contrato,NULLIF(:fecha_contrato,''),NULLIF(:vence_contrato,''),:version,:ica,:numero_ica,NULLIF(:vence_ica,''),:anticipo,:valor,'1','1',NOW(),NOW(),:usuario)", $fincaParams);
+            $this->model->executePrepared("INSERT INTO fincas (id,productor_id,descripcion,ubicacion,departamento,ciudad,vereda,departamento_id,municipio_id,localidad_rural_id,estado_predio,hectareas_totales,latitud,longitud,url_localizacion,contrato_proveeduria,fecha_contrato,fecha_vencimiento_contrato,version_contrato,registro_ica,numero_ica,vencimiento_ica,anticipo,valor_anticipo,sync,voided,created_at,updated_at,created_by) VALUES (:id,:productor,:nombre,:ubicacion,:departamento,:municipio,:localidad,:departamento_id,:municipio_id,:localidad_id,:estado,:hectareas,:latitud,:longitud,:url,:contrato,NULLIF(:fecha_contrato,''),NULLIF(:vence_contrato,''),:version,:ica,:numero_ica,NULLIF(:vence_ica,''),:anticipo,:valor,'1','1',:created_at,:now,:usuario)", $fincaParams);
         }
         $this->model->executePrepared("DELETE FROM predio_certificaciones WHERE finca_id=:finca", [':finca'=>$fincaId]);
         foreach (($data['certificaciones'] ?? []) as $tipo => $cert) {
@@ -2307,6 +2688,68 @@ class AgronomoController extends ControllerBase
             $this->model->executePrepared("INSERT INTO predio_certificaciones (id,finca_id,tipo,vigente,valido_hasta) VALUES (:id,:finca,:tipo,1,NULLIF(:fecha,''))", [':id'=>bin2hex(random_bytes(16)),':finca'=>$fincaId,':tipo'=>$tipo,':fecha'=>$cert['valido_hasta'] ?? '']);
         }
         service_return(['data'=>['id'=>$fincaId],'message'=>$existing ? 'Predio actualizado completamente con éxito.' : 'Predio registrado completamente con éxito.']);
+    }
+
+    public function getTiposCertificacionWeb($data)
+    {
+        $rows = $this->model->queryPrepared(
+            "SELECT tc.codigo,tc.nombre,tc.descripcion,tc.requiere_vencimiento,tc.activo,
+                    tc.created_at,tc.updated_at,COUNT(pc.id) AS total_predios
+             FROM tipos_certificacion tc
+             LEFT JOIN predio_certificaciones pc ON pc.tipo=tc.codigo AND pc.vigente=1
+             GROUP BY tc.codigo,tc.nombre,tc.descripcion,tc.requiere_vencimiento,tc.activo,tc.created_at,tc.updated_at
+             ORDER BY tc.activo DESC,tc.nombre"
+        );
+        service_return(['data'=>$rows,'message'=>'Catálogo de certificaciones consultado con éxito.']);
+    }
+
+    public function saveTipoCertificacionWeb($data)
+    {
+        $original = strtoupper(trim((string)($data['codigo_original'] ?? '')));
+        $nombre = trim((string)($data['nombre'] ?? ''));
+        $codigo = strtoupper(trim((string)($data['codigo'] ?? '')));
+        $descripcion = trim((string)($data['descripcion'] ?? ''));
+        if ($nombre === '') service_return(['success'=>false,'message'=>'El nombre de la certificación es obligatorio.','data'=>[]]);
+        if ($codigo === '') {
+            $base = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $nombre);
+            $codigo = strtoupper(preg_replace('/[^A-Z0-9]+/', '_', (string)$base));
+            $codigo = trim($codigo, '_');
+        }
+        if (!preg_match('/^[A-Z][A-Z0-9_]{1,49}$/', $codigo)) {
+            service_return(['success'=>false,'message'=>'El código debe iniciar con una letra y usar únicamente letras, números o guion bajo.','data'=>[]]);
+        }
+        $duplicate = $this->model->queryPrepared(
+            "SELECT codigo FROM tipos_certificacion WHERE (codigo=:codigo OR nombre=:nombre) AND codigo<>:original LIMIT 1",
+            [':codigo'=>$codigo,':nombre'=>$nombre,':original'=>$original]
+        );
+        if ($duplicate) service_return(['success'=>false,'message'=>'Ya existe una certificación con ese nombre o código.','data'=>[]]);
+        $now = date('Y-m-d H:i:s');
+        if ($original === '') {
+            $this->model->executePrepared(
+                "INSERT INTO tipos_certificacion(codigo,nombre,descripcion,requiere_vencimiento,activo,created_at,updated_at,created_by)
+                 VALUES(:codigo,:nombre,NULLIF(:descripcion,''),:vence,1,:created_at,:updated_at,:usuario)",
+                [':codigo'=>$codigo,':nombre'=>$nombre,':descripcion'=>$descripcion,':vence'=>!empty($data['requiere_vencimiento'])?1:0,':created_at'=>$now,':updated_at'=>$now,':usuario'=>$_SESSION['agronomo_user_id'] ?? '']
+            );
+            $message = 'Certificación creada con éxito.';
+        } else {
+            if ($codigo !== $original) service_return(['success'=>false,'message'=>'El código no puede cambiarse después de crear la certificación.','data'=>[]]);
+            $this->model->executePrepared(
+                "UPDATE tipos_certificacion SET nombre=:nombre,descripcion=NULLIF(:descripcion,''),requiere_vencimiento=:vence,updated_at=:now WHERE codigo=:codigo",
+                [':codigo'=>$original,':nombre'=>$nombre,':descripcion'=>$descripcion,':vence'=>!empty($data['requiere_vencimiento'])?1:0,':now'=>$now]
+            );
+            $message = 'Certificación actualizada con éxito.';
+        }
+        service_return(['data'=>['codigo'=>$codigo],'message'=>$message]);
+    }
+
+    public function toggleTipoCertificacionWeb($data)
+    {
+        $codigo = strtoupper(trim((string)($data['codigo'] ?? '')));
+        $rows = $this->model->queryPrepared("SELECT activo FROM tipos_certificacion WHERE codigo=:codigo LIMIT 1", [':codigo'=>$codigo]);
+        if (!$rows) service_return(['success'=>false,'message'=>'La certificación no existe.','data'=>[]]);
+        $activo = (int)$rows[0]['activo'] === 1 ? 0 : 1;
+        $this->model->executePrepared("UPDATE tipos_certificacion SET activo=:activo,updated_at=:now WHERE codigo=:codigo", [':activo'=>$activo,':now'=>date('Y-m-d H:i:s'),':codigo'=>$codigo]);
+        service_return(['data'=>['codigo'=>$codigo,'activo'=>$activo],'message'=>$activo ? 'Certificación activada.' : 'Certificación inactivada. El historial se conserva.']);
     }
 
     public function getDivisionTerritorialWeb($data)
@@ -2337,16 +2780,16 @@ class AgronomoController extends ControllerBase
             $id = bin2hex(random_bytes(16));
             $this->model->executePrepared(
                 "INSERT INTO lotes (id, finca_id, cultivo_id, nombre, hectareas, sync, voided, created_at, updated_at, created_by)
-                 VALUES (:id, :finca_id, :cultivo_id, :nombre, :hectareas, '1', '1', NOW(), NOW(), :created_by)",
+                 VALUES (:id, :finca_id, :cultivo_id, :nombre, :hectareas, '1', '1', :created_at, :now, :created_by)",
                 [':id'=>$id, ':finca_id'=>$fincaId, ':cultivo_id'=>$cultivoId, ':nombre'=>$nombre,
-                 ':hectareas'=>$hectareas, ':created_by'=>(string)($data['created_by'] ?? '')]
+                 ':hectareas'=>$hectareas, ':created_by'=>(string)($data['created_by'] ?? ''), ':now'=>date('Y-m-d H:i:s'), ':created_at'=>date('Y-m-d H:i:s')]
             );
             $message = 'Lote creado y asignado con éxito.';
         } else {
             $this->model->executePrepared(
                 "UPDATE lotes SET finca_id=:finca_id, cultivo_id=:cultivo_id, nombre=:nombre,
-                 hectareas=:hectareas, updated_at=NOW(), sync='1' WHERE id=:id",
-                [':id'=>$id, ':finca_id'=>$fincaId, ':cultivo_id'=>$cultivoId, ':nombre'=>$nombre, ':hectareas'=>$hectareas]
+                 hectareas=:hectareas, updated_at=:now, sync='1' WHERE id=:id",
+                [':id'=>$id, ':finca_id'=>$fincaId, ':cultivo_id'=>$cultivoId, ':nombre'=>$nombre, ':hectareas'=>$hectareas, ':now'=>date('Y-m-d H:i:s')]
             );
             $message = 'Lote actualizado con éxito.';
         }
@@ -2388,18 +2831,31 @@ class AgronomoController extends ControllerBase
             $id = bin2hex(random_bytes(16));
             $this->model->executePrepared(
                 "INSERT INTO cultivos (id, descripcion, codigo, sync, voided, created_at, updated_at, created_by)
-                 VALUES (:id, :descripcion, NULLIF(:codigo, ''), '1', '1', NOW(), NOW(), :created_by)",
-                [':id' => $id, ':descripcion' => $descripcion, ':codigo' => $codigo, ':created_by' => (string)($data['created_by'] ?? '')]
+                 VALUES (:id, :descripcion, NULLIF(:codigo, ''), '1', '1', :created_at, :now, :created_by)",
+                [':id' => $id, ':descripcion' => $descripcion, ':codigo' => $codigo, ':created_by' => (string)($data['created_by'] ?? ''), ':now' => date('Y-m-d H:i:s'), ':created_at' => date('Y-m-d H:i:s')]
             );
             $message = 'Cultivo creado con éxito.';
         } else {
             $this->model->executePrepared(
-                "UPDATE cultivos SET descripcion = :descripcion, codigo = NULLIF(:codigo, ''), updated_at = NOW(), sync = '1' WHERE id = :id",
-                [':id' => $id, ':descripcion' => $descripcion, ':codigo' => $codigo]
+                "UPDATE cultivos SET descripcion = :descripcion, codigo = NULLIF(:codigo, ''), updated_at = :now, sync = '1' WHERE id = :id",
+                [':id' => $id, ':descripcion' => $descripcion, ':codigo' => $codigo, ':now' => date('Y-m-d H:i:s')]
             );
             $message = 'Cultivo actualizado con éxito.';
         }
         service_return(['data' => ['id' => $id], 'message' => $message]);
+    }
+
+    public function toggleCultivoWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        if ($id === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar un cultivo.', 'data' => []]);
+        }
+        $this->model->executePrepared(
+            "UPDATE cultivos SET voided = IF(voided = '1', '0', '1'), updated_at = :now, sync = '1' WHERE id = :id",
+            [':id' => $id, ':now' => date('Y-m-d H:i:s')]
+        );
+        service_return(['data' => ['id' => $id], 'message' => 'Estado del cultivo actualizado.']);
     }
 
     public function getLaboresWeb($data)
@@ -2444,19 +2900,32 @@ class AgronomoController extends ControllerBase
             $id = bin2hex(random_bytes(16));
             $this->model->executePrepared(
                 "INSERT INTO labores (id, nombre, codigo, cultivo_id, categoria_labor_id, sync, voided, created_at, updated_at, created_by)
-                 VALUES (:id, :nombre, NULLIF(:codigo, ''), :cultivo_id, NULLIF(:categoria_id, ''), '1', '1', NOW(), NOW(), :created_by)",
-                [':id' => $id, ':nombre' => $nombre, ':codigo' => $codigo, ':cultivo_id' => $cultivoId, ':categoria_id' => $categoriaId, ':created_by' => (string)($data['created_by'] ?? '')]
+                 VALUES (:id, :nombre, NULLIF(:codigo, ''), :cultivo_id, NULLIF(:categoria_id, ''), '1', '1', :created_at, :now, :created_by)",
+                [':id' => $id, ':nombre' => $nombre, ':codigo' => $codigo, ':cultivo_id' => $cultivoId, ':categoria_id' => $categoriaId, ':created_by' => (string)($data['created_by'] ?? ''), ':now' => date('Y-m-d H:i:s'), ':created_at' => date('Y-m-d H:i:s')]
             );
             $message = 'Labor creada con éxito.';
         } else {
             $this->model->executePrepared(
                 "UPDATE labores SET nombre = :nombre, codigo = NULLIF(:codigo, ''), cultivo_id = :cultivo_id,
-                 categoria_labor_id = NULLIF(:categoria_id, ''), updated_at = NOW(), sync = '1' WHERE id = :id",
-                [':id' => $id, ':nombre' => $nombre, ':codigo' => $codigo, ':cultivo_id' => $cultivoId, ':categoria_id' => $categoriaId]
+                 categoria_labor_id = NULLIF(:categoria_id, ''), updated_at = :now, sync = '1' WHERE id = :id",
+                [':id' => $id, ':nombre' => $nombre, ':codigo' => $codigo, ':cultivo_id' => $cultivoId, ':categoria_id' => $categoriaId, ':now' => date('Y-m-d H:i:s')]
             );
             $message = 'Labor actualizada con éxito.';
         }
         service_return(['data' => ['id' => $id], 'message' => $message]);
+    }
+
+    public function toggleLaborWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        if ($id === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar una labor.', 'data' => []]);
+        }
+        $this->model->executePrepared(
+            "UPDATE labores SET voided = IF(voided = '1', '0', '1'), updated_at = :now, sync = '1' WHERE id = :id",
+            [':id' => $id, ':now' => date('Y-m-d H:i:s')]
+        );
+        service_return(['data' => ['id' => $id], 'message' => 'Estado de la labor actualizado.']);
     }
 
     // =====================================================================
@@ -2494,18 +2963,31 @@ class AgronomoController extends ControllerBase
             $id = bin2hex(random_bytes(16));
             $this->model->executePrepared(
                 "INSERT INTO categorias_labor (id, descripcion, codigo, sync, voided, created_at, updated_at, created_by)
-                 VALUES (:id, :descripcion, NULLIF(:codigo, ''), '1', '1', NOW(), NOW(), :created_by)",
-                [':id' => $id, ':descripcion' => $descripcion, ':codigo' => $codigo, ':created_by' => (string)($data['created_by'] ?? '')]
+                 VALUES (:id, :descripcion, NULLIF(:codigo, ''), '1', '1', :created_at, :now, :created_by)",
+                [':id' => $id, ':descripcion' => $descripcion, ':codigo' => $codigo, ':created_by' => (string)($data['created_by'] ?? ''), ':now' => date('Y-m-d H:i:s'), ':created_at' => date('Y-m-d H:i:s')]
             );
             $message = 'Categoría de labor creada con éxito.';
         } else {
             $this->model->executePrepared(
-                "UPDATE categorias_labor SET descripcion = :descripcion, codigo = NULLIF(:codigo, ''), updated_at = NOW(), sync = '1' WHERE id = :id",
-                [':id' => $id, ':descripcion' => $descripcion, ':codigo' => $codigo]
+                "UPDATE categorias_labor SET descripcion = :descripcion, codigo = NULLIF(:codigo, ''), updated_at = :now, sync = '1' WHERE id = :id",
+                [':id' => $id, ':descripcion' => $descripcion, ':codigo' => $codigo, ':now' => date('Y-m-d H:i:s')]
             );
             $message = 'Categoría de labor actualizada con éxito.';
         }
         service_return(['data' => ['id' => $id], 'message' => $message]);
+    }
+
+    public function toggleCategoriaLaborWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        if ($id === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar una categoría.', 'data' => []]);
+        }
+        $this->model->executePrepared(
+            "UPDATE categorias_labor SET voided = IF(voided = '1', '0', '1'), updated_at = :now, sync = '1' WHERE id = :id",
+            [':id' => $id, ':now' => date('Y-m-d H:i:s')]
+        );
+        service_return(['data' => ['id' => $id], 'message' => 'Estado de la categoría actualizado.']);
     }
 
     // =====================================================================
@@ -2515,6 +2997,7 @@ class AgronomoController extends ControllerBase
     public function createCategoriaLabor($data)
     {
         $a = $this->model;
+        $this->assertMobileCatalogNotReactivated('categorias_labor', trim((string)($data['id'] ?? '')), 'categoría de labor', $data);
 
         $where['id'] = $data['id'];
         $sql_data = crearSentenciaSelect(['tabla' => 'categorias_labor', 'where' => $where]);
@@ -2583,14 +3066,14 @@ class AgronomoController extends ControllerBase
             $id = bin2hex(random_bytes(16));
             $this->model->executePrepared(
                 "INSERT INTO recomendaciones (id, descripcion, sync, voided, created_at, updated_at, created_by)
-                 VALUES (:id, :descripcion, '1', '1', NOW(), NOW(), :created_by)",
-                [':id' => $id, ':descripcion' => $descripcion, ':created_by' => (string)($data['created_by'] ?? '')]
+                 VALUES (:id, :descripcion, '1', '1', :created_at, :now, :created_by)",
+                [':id' => $id, ':descripcion' => $descripcion, ':created_by' => (string)($data['created_by'] ?? ''), ':now' => date('Y-m-d H:i:s'), ':created_at' => date('Y-m-d H:i:s')]
             );
             $message = 'Recomendación creada con éxito.';
         } else {
             $this->model->executePrepared(
-                "UPDATE recomendaciones SET descripcion = :descripcion, updated_at = NOW(), sync = '1' WHERE id = :id",
-                [':id' => $id, ':descripcion' => $descripcion]
+                "UPDATE recomendaciones SET descripcion = :descripcion, updated_at = :now, sync = '1' WHERE id = :id",
+                [':id' => $id, ':descripcion' => $descripcion, ':now' => date('Y-m-d H:i:s')]
             );
             $message = 'Recomendación actualizada con éxito.';
         }
@@ -2604,16 +3087,555 @@ class AgronomoController extends ControllerBase
             service_return(['success' => false, 'message' => 'Debes seleccionar una recomendación.', 'data' => []]);
         }
         $this->model->executePrepared(
-            "UPDATE recomendaciones SET voided = IF(voided = '1', '0', '1'), updated_at = NOW(), sync = '1' WHERE id = :id",
-            [':id' => $id]
+            "UPDATE recomendaciones SET voided = IF(voided = '1', '0', '1'), updated_at = :now, sync = '1' WHERE id = :id",
+            [':id' => $id, ':now' => date('Y-m-d H:i:s')]
         );
         service_return(['data' => ['id' => $id], 'message' => 'Estado de la recomendación actualizado.']);
+    }
+
+    // =====================================================================
+    // REPORTES EN EXCEL (WEB) — biblioteca de archivos .xlsx/.xls/.xlsm que
+    // un administrador sube ya armados (muchos con Power Query conectado a
+    // la base de datos); no genera reportes dinámicamente. Mismo concepto
+    // que el módulo "Reportes en Excel" de AgroSoft_hostinger.
+    // =====================================================================
+
+    public function getReportesExcelWeb($data)
+    {
+        $rows = $this->model->queryPrepared(
+            "SELECT r.id, r.nombre, r.descripcion, r.archivo, r.extension, r.tamano_bytes,
+                    r.voided, r.created_at, r.updated_at, u.name AS creado_por
+             FROM reportes_excel r LEFT JOIN `user` u ON u.id = r.created_by
+             ORDER BY r.voided DESC, r.nombre"
+        );
+        service_return(['data' => $rows, 'message' => 'Reportes consultados con éxito.']);
+    }
+
+    public function saveReporteExcelWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        $nombre = trim((string)($data['nombre'] ?? ''));
+        $descripcion = trim((string)($data['descripcion'] ?? ''));
+        $archivoBase64 = (string)($data['archivo_base64'] ?? '');
+        $archivoNombre = trim((string)($data['archivo_nombre'] ?? ''));
+
+        if ($nombre === '') {
+            service_return(['success' => false, 'message' => 'El nombre del reporte es obligatorio.', 'data' => []]);
+        }
+        if ($id === '' && ($archivoBase64 === '' || $archivoNombre === '')) {
+            service_return(['success' => false, 'message' => 'Debes adjuntar un archivo de Excel.', 'data' => []]);
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $actor = (string)($_SESSION['agronomo_user_id'] ?? '');
+        $descripcionValor = $descripcion !== '' ? $descripcion : null;
+
+        $archivoParams = [];
+        if ($archivoBase64 !== '' && $archivoNombre !== '') {
+            $extension = strtolower((string)pathinfo($archivoNombre, PATHINFO_EXTENSION));
+            if (!in_array($extension, ['xlsx', 'xls', 'xlsm'], true)) {
+                service_return(['success' => false, 'message' => 'El archivo debe ser .xlsx, .xls o .xlsm.', 'data' => []]);
+            }
+            $binario = base64_decode($archivoBase64, true);
+            if ($binario === false || $binario === '') {
+                service_return(['success' => false, 'message' => 'El archivo adjunto no es válido.', 'data' => []]);
+            }
+            if (strlen($binario) > 5 * 1024 * 1024) {
+                service_return(['success' => false, 'message' => 'El archivo no puede superar 5 MB.', 'data' => []]);
+            }
+            $rutaDestino = 'uploads/reportes_excel/' . bin2hex(random_bytes(12)) . '.' . $extension;
+            file_put_contents($rutaDestino, $binario);
+            $archivoParams = [':archivo' => $rutaDestino, ':extension' => $extension, ':tamano' => strlen($binario)];
+        }
+
+        if ($id === '') {
+            $id = bin2hex(random_bytes(16));
+            $this->model->executePrepared(
+                "INSERT INTO reportes_excel (id, nombre, descripcion, archivo, extension, tamano_bytes, sync, voided, created_at, updated_at, created_by)
+                 VALUES (:id, :nombre, :descripcion, :archivo, :extension, :tamano, '1', '1', :created_at, :now, :actor)",
+                array_merge([':id' => $id, ':nombre' => $nombre, ':descripcion' => $descripcionValor, ':now' => $now, ':created_at' => $now, ':actor' => $actor], $archivoParams)
+            );
+            $message = 'Reporte subido con éxito.';
+        } else {
+            $existing = $this->model->queryPrepared("SELECT archivo FROM reportes_excel WHERE id = :id LIMIT 1", [':id' => $id]);
+            if (!$existing) {
+                service_return(['success' => false, 'message' => 'El reporte que intentas editar ya no existe.', 'data' => []]);
+            }
+            if ($archivoParams) {
+                $rutaAnterior = (string)$existing[0]['archivo'];
+                if ($rutaAnterior !== '' && file_exists($rutaAnterior)) {
+                    @unlink($rutaAnterior);
+                }
+                $this->model->executePrepared(
+                    "UPDATE reportes_excel SET nombre=:nombre, descripcion=:descripcion, archivo=:archivo, extension=:extension, tamano_bytes=:tamano, sync='1', updated_at=:now WHERE id=:id",
+                    array_merge([':id' => $id, ':nombre' => $nombre, ':descripcion' => $descripcionValor, ':now' => $now], $archivoParams)
+                );
+            } else {
+                $this->model->executePrepared(
+                    "UPDATE reportes_excel SET nombre=:nombre, descripcion=:descripcion, sync='1', updated_at=:now WHERE id=:id",
+                    [':id' => $id, ':nombre' => $nombre, ':descripcion' => $descripcionValor, ':now' => $now]
+                );
+            }
+            $message = 'Reporte actualizado con éxito.';
+        }
+        $this->auditWeb('REPORTE_EXCEL_GUARDADO', $id . ' · ' . $nombre);
+        service_return(['data' => ['id' => $id], 'message' => $message]);
+    }
+
+    public function toggleReporteExcelWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        if ($id === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar un reporte.', 'data' => []]);
+        }
+        $this->model->executePrepared(
+            "UPDATE reportes_excel SET voided = IF(voided = '1', '0', '1'), sync = '1', updated_at = :now WHERE id = :id",
+            [':id' => $id, ':now' => date('Y-m-d H:i:s')]
+        );
+        $this->auditWeb('REPORTE_EXCEL_ESTADO', $id);
+        service_return(['data' => ['id' => $id], 'message' => 'Estado del reporte actualizado.']);
+    }
+
+    // =====================================================================
+    // CONSTRUCTOR DE QUERIES (build.query) — núcleo (guardar consulta y
+    // generar el link), navegador de esquema y clientes de la API JSON.
+    // Equivalente reducido al módulo build.query de AgroSoft_dev2: sin el
+    // asistente de IA ni los widgets de dashboard móvil de ese original.
+    // =====================================================================
+
+    private function validateBuildQuerySql(string $sql): void
+    {
+        $sql = trim($sql);
+        if ($sql === '') {
+            service_return(['success' => false, 'message' => 'La consulta SQL es obligatoria.', 'data' => []]);
+        }
+        if (!preg_match('/^\s*(SELECT|WITH)\b/i', $sql)) {
+            service_return(['success' => false, 'message' => 'Solo se permiten consultas SELECT o WITH.', 'data' => []]);
+        }
+        if (preg_match('/;\s*\S/', $sql)) {
+            service_return(['success' => false, 'message' => 'No se permite más de una sentencia por consulta.', 'data' => []]);
+        }
+        if (preg_match('/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|REPLACE|EXEC|LOAD_FILE|OUTFILE|DUMPFILE)\b/i', $sql)) {
+            service_return(['success' => false, 'message' => 'La consulta contiene una palabra clave no permitida.', 'data' => []]);
+        }
+        foreach (self::BUILD_QUERY_BLOCKED_TABLES as $tabla) {
+            if (preg_match('/\b' . preg_quote($tabla, '/') . '\b/i', $sql)) {
+                service_return(['success' => false, 'message' => "La tabla \"$tabla\" no está disponible para reportes.", 'data' => []]);
+            }
+        }
+    }
+
+    private function buildQueryParamNames(string $parametros): array
+    {
+        return array_values(array_filter(array_map('trim', explode(',', $parametros))));
+    }
+
+    public function getReportQueriesWeb($data)
+    {
+        $rows = $this->model->queryPrepared(
+            "SELECT rq.id, rq.descripcion, rq.consulta, rq.parametros, rq.api_habilitada, rq.api_descripcion,
+                    rq.api_max_filas, rq.voided, rq.created_at, rq.updated_at, u.name AS creado_por,
+                    (SELECT COUNT(*) FROM api_cliente_reportes acr WHERE acr.reporte_id = rq.id) AS clientes_autorizados
+             FROM report_queries rq LEFT JOIN `user` u ON u.id = rq.created_by
+             ORDER BY rq.voided DESC, rq.descripcion"
+        );
+        service_return(['data' => $rows, 'message' => 'Consultas guardadas con éxito.']);
+    }
+
+    public function saveReportQueryWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        $descripcion = trim((string)($data['descripcion'] ?? ''));
+        $consulta = trim((string)($data['consulta'] ?? ''));
+        $parametrosRaw = trim((string)($data['parametros'] ?? ''));
+        $apiHabilitada = !empty($data['api_habilitada']) ? '1' : '0';
+        $apiDescripcion = trim((string)($data['api_descripcion'] ?? ''));
+        $apiMaxFilas = max(1, min(10000, (int)($data['api_max_filas'] ?? 1000)));
+
+        if ($descripcion === '') {
+            service_return(['success' => false, 'message' => 'La descripción es obligatoria.', 'data' => []]);
+        }
+        $this->validateBuildQuerySql($consulta);
+
+        $parametros = $this->buildQueryParamNames($parametrosRaw);
+        foreach ($parametros as $parametro) {
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $parametro)) {
+                service_return(['success' => false, 'message' => "El parámetro \"$parametro\" no es un nombre válido.", 'data' => []]);
+            }
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $actor = (string)($_SESSION['agronomo_user_id'] ?? '');
+        $campos = [
+            ':descripcion' => $descripcion, ':consulta' => $consulta,
+            ':parametros' => $parametros ? implode(',', $parametros) : null,
+            ':api_habilitada' => $apiHabilitada,
+            ':api_descripcion' => $apiDescripcion !== '' ? $apiDescripcion : null,
+            ':api_max_filas' => $apiMaxFilas, ':now' => $now,
+        ];
+
+        if ($id === '') {
+            $id = bin2hex(random_bytes(20));
+            $this->model->executePrepared(
+                "INSERT INTO report_queries (id, descripcion, consulta, parametros, api_habilitada, api_descripcion, api_max_filas, sync, voided, created_at, updated_at, created_by)
+                 VALUES (:id, :descripcion, :consulta, :parametros, :api_habilitada, :api_descripcion, :api_max_filas, '1', '1', :created_at, :now, :actor)",
+                array_merge($campos, [':id' => $id, ':created_at' => $now, ':actor' => $actor])
+            );
+            $message = 'Consulta creada con éxito.';
+        } else {
+            $existing = $this->model->queryPrepared("SELECT id FROM report_queries WHERE id = :id LIMIT 1", [':id' => $id]);
+            if (!$existing) {
+                service_return(['success' => false, 'message' => 'La consulta que intentas editar ya no existe.', 'data' => []]);
+            }
+            $this->model->executePrepared(
+                "UPDATE report_queries SET descripcion=:descripcion, consulta=:consulta, parametros=:parametros,
+                 api_habilitada=:api_habilitada, api_descripcion=:api_descripcion, api_max_filas=:api_max_filas,
+                 sync='1', updated_at=:now WHERE id=:id",
+                array_merge($campos, [':id' => $id])
+            );
+            $message = 'Consulta actualizada con éxito.';
+        }
+        $this->auditWeb('BUILD_QUERY_GUARDADA', $id . ' · ' . $descripcion);
+        service_return(['data' => ['id' => $id, 'parametros' => $parametros], 'message' => $message]);
+    }
+
+    public function toggleReportQueryWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        if ($id === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar una consulta.', 'data' => []]);
+        }
+        $this->model->executePrepared(
+            "UPDATE report_queries SET voided = IF(voided = '1', '0', '1'), sync = '1', updated_at = :now WHERE id = :id",
+            [':id' => $id, ':now' => date('Y-m-d H:i:s')]
+        );
+        $this->auditWeb('BUILD_QUERY_ESTADO', $id);
+        service_return(['data' => ['id' => $id], 'message' => 'Estado de la consulta actualizado.']);
+    }
+
+    public function previewReportQueryWeb($data)
+    {
+        $consulta = rtrim(trim((string)($data['consulta'] ?? '')), '; ');
+        $valores = is_array($data['valores'] ?? null) ? $data['valores'] : [];
+        $this->validateBuildQuerySql($consulta);
+
+        $params = [];
+        foreach ($valores as $nombre => $valor) {
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', (string)$nombre)) continue;
+            $params[':' . $nombre] = $valor;
+        }
+        try {
+            $rows = $this->model->queryPrepared("SELECT * FROM ($consulta) AS build_query_preview LIMIT 200", $params);
+        } catch (Throwable $e) {
+            service_return(['success' => false, 'message' => 'No fue posible ejecutar la consulta: ' . $this->sanitizeBuildQueryError($e->getMessage()), 'data' => []]);
+        }
+        service_return(['data' => $rows, 'message' => 'Vista previa generada con éxito.']);
+    }
+
+    public function getSchemaTablesWeb($data)
+    {
+        $busqueda = trim((string)($data['busqueda'] ?? ''));
+        $sql = "SELECT TABLE_NAME AS tabla, TABLE_COMMENT AS comentario, TABLE_ROWS AS filas_aprox
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'";
+        $params = [];
+        if ($busqueda !== '') {
+            $sql .= ' AND TABLE_NAME LIKE :busqueda';
+            $params[':busqueda'] = '%' . $busqueda . '%';
+        }
+        $sql .= ' ORDER BY TABLE_NAME';
+        $rows = $this->model->queryPrepared($sql, $params);
+        $bloqueadas = array_map('strtolower', self::BUILD_QUERY_BLOCKED_TABLES);
+        $rows = array_values(array_filter($rows, function ($row) use ($bloqueadas) {
+            return !in_array(strtolower((string)$row['tabla']), $bloqueadas, true);
+        }));
+        service_return(['data' => $rows, 'message' => 'Tablas consultadas con éxito.']);
+    }
+
+    public function getSchemaColumnsWeb($data)
+    {
+        $tabla = trim((string)($data['tabla'] ?? ''));
+        if ($tabla === '' || in_array(strtolower($tabla), array_map('strtolower', self::BUILD_QUERY_BLOCKED_TABLES), true)) {
+            service_return(['success' => false, 'message' => 'Esa tabla no está disponible.', 'data' => []]);
+        }
+        $rows = $this->model->queryPrepared(
+            "SELECT COLUMN_NAME AS columna, DATA_TYPE AS tipo, IS_NULLABLE AS permite_nulo, COLUMN_COMMENT AS comentario
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tabla
+             ORDER BY ORDINAL_POSITION",
+            [':tabla' => $tabla]
+        );
+        service_return(['data' => $rows, 'message' => 'Columnas consultadas con éxito.']);
+    }
+
+    public function getApiClientesWeb($data)
+    {
+        $rows = $this->model->queryPrepared(
+            "SELECT c.id, c.nombre, c.client_key, c.notas, c.voided, c.created_at, c.updated_at,
+                    (SELECT COUNT(*) FROM api_cliente_reportes acr WHERE acr.cliente_id = c.id) AS reportes_autorizados
+             FROM api_clientes c ORDER BY c.voided DESC, c.nombre"
+        );
+        service_return(['data' => $rows, 'message' => 'Clientes de API consultados con éxito.']);
+    }
+
+    public function saveApiClienteWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        $nombre = trim((string)($data['nombre'] ?? ''));
+        $notas = trim((string)($data['notas'] ?? ''));
+        if ($nombre === '') {
+            service_return(['success' => false, 'message' => 'El nombre del cliente es obligatorio.', 'data' => []]);
+        }
+        $now = date('Y-m-d H:i:s');
+        $actor = (string)($_SESSION['agronomo_user_id'] ?? '');
+        $clientKey = null;
+        $secretoPlano = null;
+
+        if ($id === '') {
+            $id = bin2hex(random_bytes(16));
+            $clientKey = bin2hex(random_bytes(10));
+            $secretoPlano = bin2hex(random_bytes(24));
+            $this->model->executePrepared(
+                "INSERT INTO api_clientes (id, nombre, client_key, client_secret_hash, notas, voided, created_at, updated_at, created_by)
+                 VALUES (:id, :nombre, :client_key, :hash, :notas, '1', :created_at, :now, :actor)",
+                [':id' => $id, ':nombre' => $nombre, ':client_key' => $clientKey, ':hash' => password_hash($secretoPlano, PASSWORD_DEFAULT), ':notas' => $notas !== '' ? $notas : null, ':now' => $now, ':created_at' => $now, ':actor' => $actor]
+            );
+            $message = 'Cliente creado con éxito.';
+        } else {
+            $existing = $this->model->queryPrepared("SELECT id FROM api_clientes WHERE id = :id LIMIT 1", [':id' => $id]);
+            if (!$existing) {
+                service_return(['success' => false, 'message' => 'El cliente que intentas editar ya no existe.', 'data' => []]);
+            }
+            $this->model->executePrepared(
+                "UPDATE api_clientes SET nombre=:nombre, notas=:notas, updated_at=:now WHERE id=:id",
+                [':id' => $id, ':nombre' => $nombre, ':notas' => $notas !== '' ? $notas : null, ':now' => $now]
+            );
+            $message = 'Cliente actualizado con éxito.';
+        }
+        $this->auditWeb('API_CLIENTE_GUARDADO', $id . ' · ' . $nombre);
+        $respuesta = ['id' => $id];
+        if ($secretoPlano !== null) {
+            $respuesta['client_key'] = $clientKey;
+            $respuesta['client_secret'] = $secretoPlano;
+        }
+        service_return(['data' => $respuesta, 'message' => $message]);
+    }
+
+    public function toggleApiClienteWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        if ($id === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar un cliente.', 'data' => []]);
+        }
+        $this->model->executePrepared(
+            "UPDATE api_clientes SET voided = IF(voided = '1', '0', '1'), updated_at = :now WHERE id = :id",
+            [':id' => $id, ':now' => date('Y-m-d H:i:s')]
+        );
+        $this->auditWeb('API_CLIENTE_ESTADO', $id);
+        service_return(['data' => ['id' => $id], 'message' => 'Estado del cliente actualizado.']);
+    }
+
+    public function getApiClienteReportesWeb($data)
+    {
+        $clienteId = trim((string)($data['cliente_id'] ?? ''));
+        if ($clienteId === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar un cliente.', 'data' => []]);
+        }
+        $rows = $this->model->queryPrepared(
+            "SELECT reporte_id FROM api_cliente_reportes WHERE cliente_id = :cliente",
+            [':cliente' => $clienteId]
+        );
+        service_return(['data' => array_map(function ($row) { return $row['reporte_id']; }, $rows), 'message' => 'Permisos consultados con éxito.']);
+    }
+
+    public function saveApiClienteReportesWeb($data)
+    {
+        $clienteId = trim((string)($data['cliente_id'] ?? ''));
+        $reporteIds = is_array($data['reporte_ids'] ?? null) ? array_values(array_unique(array_map('strval', $data['reporte_ids']))) : [];
+        if ($clienteId === '') {
+            service_return(['success' => false, 'message' => 'Debes seleccionar un cliente.', 'data' => []]);
+        }
+        $cliente = $this->model->queryPrepared("SELECT id FROM api_clientes WHERE id = :id LIMIT 1", [':id' => $clienteId]);
+        if (!$cliente) {
+            service_return(['success' => false, 'message' => 'El cliente no existe.', 'data' => []]);
+        }
+        $this->model->executePrepared("DELETE FROM api_cliente_reportes WHERE cliente_id = :cliente", [':cliente' => $clienteId]);
+        foreach ($reporteIds as $reporteId) {
+            $this->model->executePrepared(
+                "INSERT INTO api_cliente_reportes (id, cliente_id, reporte_id, created_at) VALUES (:id, :cliente, :reporte, :now)",
+                [':id' => bin2hex(random_bytes(16)), ':cliente' => $clienteId, ':reporte' => $reporteId, ':now' => date('Y-m-d H:i:s')]
+            );
+        }
+        $this->auditWeb('API_CLIENTE_PERMISOS', $clienteId);
+        service_return(['data' => ['cliente_id' => $clienteId, 'reporte_ids' => $reporteIds], 'message' => 'Permisos de reportes actualizados.']);
+    }
+
+    // ---- Endpoints públicos (Basic Auth propia, no pasan por el router
+    // JSON-RPC): los llaman reports/excel.php y reports/api.php directamente.
+
+    private function requireBuildQueryBasicAuth(): void
+    {
+        $user = $_SERVER['PHP_AUTH_USER'] ?? '';
+        $pass = $_SERVER['PHP_AUTH_PW'] ?? '';
+        $valido = false;
+        if ($user !== '' && $pass !== '') {
+            $rows = $this->model->queryPrepared(
+                "SELECT password_hash FROM `user` WHERE `user` = :user AND void = '1' LIMIT 1",
+                [':user' => strtolower($user)]
+            );
+            if ($rows && password_verify($pass, (string)$rows[0]['password_hash'])) {
+                $valido = true;
+            }
+        }
+        if (!$valido) {
+            header('WWW-Authenticate: Basic realm="Reportes AgroSoft Agronomo"');
+            http_response_code(401);
+            header('Content-Type: text/plain; charset=UTF-8');
+            echo 'Autenticacion requerida.';
+            exit;
+        }
+    }
+
+    private function requireApiClientAuth(): string
+    {
+        $key = $_SERVER['PHP_AUTH_USER'] ?? '';
+        $secret = $_SERVER['PHP_AUTH_PW'] ?? '';
+        if ($key !== '' && $secret !== '') {
+            $rows = $this->model->queryPrepared(
+                "SELECT id, client_secret_hash FROM api_clientes WHERE client_key = :key AND voided = '1' LIMIT 1",
+                [':key' => $key]
+            );
+            if ($rows && password_verify($secret, (string)$rows[0]['client_secret_hash'])) {
+                return (string)$rows[0]['id'];
+            }
+        }
+        header('WWW-Authenticate: Basic realm="API Reportes AgroSoft Agronomo"');
+        http_response_code(401);
+        header('Content-Type: application/json; charset=UTF-8');
+        echo json_encode(['success' => false, 'message' => 'Credenciales de API invalidas.']);
+        exit;
+    }
+
+    private function logApiRequest(?string $clienteId, string $reporteId, int $status, $filas): void
+    {
+        $this->model->executePrepared(
+            "INSERT INTO api_request_log (cliente_id, reporte_id, ip_address, status_code, filas, created_at) VALUES (:cliente, :reporte, :ip, :status, :filas, :now)",
+            [':cliente' => $clienteId, ':reporte' => $reporteId, ':ip' => $_SERVER['REMOTE_ADDR'] ?? null, ':status' => $status, ':filas' => $filas, ':now' => date('Y-m-d H:i:s')]
+        );
+    }
+
+    public function renderExcelReport(): void
+    {
+        $this->requireBuildQueryBasicAuth();
+        $id = trim((string)($_GET['id'] ?? ''));
+        $reportes = $this->model->queryPrepared(
+            "SELECT id, descripcion, consulta, parametros FROM report_queries WHERE id = :id AND voided = '1' LIMIT 1",
+            [':id' => $id]
+        );
+        if (!$reportes) {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=UTF-8');
+            echo 'Reporte no encontrado o inactivo.';
+            exit;
+        }
+        $reporte = $reportes[0];
+        $params = [];
+        foreach ($this->buildQueryParamNames((string)$reporte['parametros']) as $nombre) {
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $nombre)) continue;
+            $params[':' . $nombre] = $_GET[$nombre] ?? '';
+        }
+        $consulta = rtrim(trim((string)$reporte['consulta']), '; ');
+        try {
+            $rows = $this->model->queryPrepared("SELECT * FROM ($consulta) AS build_query_export LIMIT 5000", $params);
+        } catch (Throwable $e) {
+            http_response_code(500);
+            header('Content-Type: text/plain; charset=UTF-8');
+            echo 'No fue posible ejecutar el reporte.';
+            exit;
+        }
+        $nombreArchivo = preg_replace('/[^a-zA-Z0-9_-]+/', '_', (string)$reporte['descripcion']);
+        header('Content-Type: application/vnd.ms-excel; charset=UTF-8');
+        header('Content-Disposition: inline; filename="' . $nombreArchivo . '.xls"');
+        echo "\xEF\xBB\xBF";
+        echo '<html><head><meta charset="UTF-8"></head><body><table border="1">';
+        if ($rows) {
+            echo '<tr>';
+            foreach (array_keys($rows[0]) as $columna) {
+                echo '<th>' . htmlspecialchars((string)$columna, ENT_QUOTES, 'UTF-8') . '</th>';
+            }
+            echo '</tr>';
+            foreach ($rows as $fila) {
+                echo '<tr>';
+                foreach ($fila as $valor) {
+                    echo '<td>' . htmlspecialchars((string)$valor, ENT_QUOTES, 'UTF-8') . '</td>';
+                }
+                echo '</tr>';
+            }
+        }
+        echo '</table></body></html>';
+        exit;
+    }
+
+    public function renderApiReport(): void
+    {
+        header('Content-Type: application/json; charset=UTF-8');
+        $clienteId = $this->requireApiClientAuth();
+        $token = trim((string)($_GET['token'] ?? ''));
+        $reportes = $this->model->queryPrepared(
+            "SELECT id, descripcion, consulta, parametros, api_habilitada, api_max_filas FROM report_queries WHERE id = :id AND voided = '1' LIMIT 1",
+            [':id' => $token]
+        );
+        if (!$reportes || $reportes[0]['api_habilitada'] !== '1') {
+            $this->logApiRequest($clienteId, $token, 404, null);
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Reporte no encontrado o no habilitado para API.']);
+            exit;
+        }
+        $reporte = $reportes[0];
+        $acl = $this->model->queryPrepared(
+            "SELECT id FROM api_cliente_reportes WHERE cliente_id = :cliente AND reporte_id = :reporte LIMIT 1",
+            [':cliente' => $clienteId, ':reporte' => $token]
+        );
+        if (!$acl) {
+            $this->logApiRequest($clienteId, $token, 403, null);
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Este cliente no tiene acceso a este reporte.']);
+            exit;
+        }
+        $paramNames = $this->buildQueryParamNames((string)$reporte['parametros']);
+        $params = [];
+        foreach ($paramNames as $nombre) {
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $nombre)) continue;
+            $params[':' . $nombre] = $_GET[$nombre] ?? '';
+        }
+        $maxFilas = max(1, (int)$reporte['api_max_filas']);
+        $consulta = rtrim(trim((string)$reporte['consulta']), '; ');
+        try {
+            $rows = $this->model->queryPrepared("SELECT * FROM ($consulta) AS build_query_api LIMIT $maxFilas", $params);
+        } catch (Throwable $e) {
+            $this->logApiRequest($clienteId, $token, 500, null);
+            http_response_code(500);
+            echo json_encode(['success' => false, 'message' => 'No fue posible ejecutar el reporte.']);
+            exit;
+        }
+        $this->logApiRequest($clienteId, $token, 200, count($rows));
+        echo json_encode([
+            'success' => true,
+            'meta' => ['token' => $token, 'descripcion' => $reporte['descripcion'], 'parametros' => $paramNames, 'filas' => count($rows), 'max_filas' => $maxFilas],
+            'data' => $rows,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
 
     public function createLote($data)
     {
 
         $a = $this->model;
+        $this->assertMobileCatalogNotReactivated('lotes', trim((string)($data['id'] ?? '')), 'lote', $data);
+        if ((string)($data['voided'] ?? '1') !== '0') {
+            $this->assertActiveMobileReference('fincas', trim((string)($data['finca_id'] ?? '')), 'finca');
+            $this->assertActiveMobileReference('cultivos', trim((string)($data['cultivo_id'] ?? '')), 'cultivo');
+        }
 
 
         $where['id'] = $data['id'];
@@ -2672,6 +3694,7 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
+        $this->assertMobileCatalogNotReactivated('fincas', trim((string)($data['id'] ?? '')), 'finca', $data);
 
 
         $where['id'] = $data['id'];
@@ -2679,6 +3702,17 @@ class AgronomoController extends ControllerBase
 
         $data_select = $a->executeScript(['sql' => $sql_data]);
 
+        $tecnicoId = trim((string)($data['tecnico_id'] ?? ''));
+        if ($tecnicoId !== '') {
+            $usuarioActivo = $a->queryPrepared(
+                "SELECT id FROM `user` WHERE id=:id AND void='1' LIMIT 1",
+                [':id'=>$tecnicoId]
+            );
+            if (!$usuarioActivo) {
+                service_return(['success'=>false,'message'=>'El técnico seleccionado no existe o está inactivo.','data'=>[]]);
+            }
+        }
+        $tecnicoAnterior = trim((string)($data_select[0]['tecnico_id'] ?? ''));
         if (empty($data_select)) {
             $data['sync'] = '1';
             $sql = crearSentenciaInsert(['tabla' => 'fincas', 'conten' => $data]);
@@ -2703,6 +3737,28 @@ class AgronomoController extends ControllerBase
             $msg = 'La finca se editó con éxito!';
         }
 
+        // La web consulta responsables desde usuario_fincas, mientras la app
+        // móvil conserva además tecnico_id por compatibilidad. Mantenemos
+        // ambas representaciones sincronizadas sin borrar otros responsables
+        // que hayan sido asignados desde la interfaz web.
+        if ($tecnicoAnterior !== '' && $tecnicoAnterior !== $tecnicoId) {
+            $a->executePrepared(
+                "DELETE FROM usuario_fincas WHERE finca_id=:finca AND usuario_id=:usuario",
+                [':finca'=>(string)$data['id'], ':usuario'=>$tecnicoAnterior]
+            );
+        }
+        if ($tecnicoId !== '') {
+            $a->executePrepared(
+                "INSERT INTO usuario_fincas(usuario_id,finca_id,created_by)
+                 VALUES(:usuario,:finca,:actor)
+                 ON DUPLICATE KEY UPDATE created_by=VALUES(created_by)",
+                [
+                    ':usuario'=>$tecnicoId,
+                    ':finca'=>(string)$data['id'],
+                    ':actor'=>(string)($data['created_by'] ?? ''),
+                ]
+            );
+        }
 
         service_return(['data' => $data['id'], 'message' => $msg]);
     }
@@ -2731,6 +3787,7 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
+        $this->assertMobileCatalogNotReactivated('cultivos', trim((string)($data['id'] ?? '')), 'cultivo', $data);
 
 
         $where['id'] = $data['id'];
@@ -2781,6 +3838,7 @@ class AgronomoController extends ControllerBase
     {
 
         $a = $this->model;
+        $this->assertMobileCatalogNotReactivated('insumos', trim((string)($data['id'] ?? '')), 'insumo', $data);
 
         $where['id'] = $data['id'];
         $sql_cliente = crearSentenciaSelect(['tabla' => 'insumos', 'where' => $where]);
@@ -2825,5 +3883,483 @@ class AgronomoController extends ControllerBase
         $data_cliente = $a->executeScript(['sql' => $sql_cliente]);
 
         service_return(['data' => $data_cliente, 'message' => 'El listado de insumos se envia con éxito!']);
+    }
+
+    public function getNotificacionesWeb($data)
+    {
+        $items = $this->model->queryPrepared(
+            "SELECT n.*,u.name AS creado_por,
+                    COUNT(d.usuario_id) AS destinatarios,
+                    SUM(d.confirmada_at IS NOT NULL) AS confirmadas,
+                    GROUP_CONCAT(CASE WHEN d.confirmada_at IS NOT NULL THEN ud.name END ORDER BY ud.name SEPARATOR ', ') AS confirmadas_nombres,
+                    GROUP_CONCAT(CASE WHEN d.confirmada_at IS NULL THEN ud.name END ORDER BY ud.name SEPARATOR ', ') AS pendientes_nombres,
+                    SUM(d.push_estado='ENVIADA') AS push_enviadas,
+                    SUM(d.push_estado='ERROR') AS push_errores,
+                    SUM(d.push_estado='SIN_TOKEN') AS push_sin_token,
+                    SUM(d.push_estado='PENDIENTE') AS push_pendientes,
+                    GROUP_CONCAT(DISTINCT CASE WHEN d.push_error IS NOT NULL THEN d.push_error END SEPARATOR ' | ') AS push_error_detalle
+             FROM notificaciones_mobile n
+             LEFT JOIN `user` u ON u.id=n.created_by
+             LEFT JOIN notificacion_destinatarios d ON d.notificacion_id=n.id
+             LEFT JOIN `user` ud ON ud.id=d.usuario_id
+             GROUP BY n.id ORDER BY n.created_at DESC LIMIT 100",
+            []
+        );
+        $usuarios = $this->model->queryPrepared(
+            "SELECT id,name,`user`,rol_id FROM `user` WHERE void='1' ORDER BY name", []
+        );
+        $roles = $this->model->queryPrepared(
+            "SELECT id,nombre,codigo FROM roles WHERE activo=1 ORDER BY nombre", []
+        );
+        $version = $this->model->queryPrepared(
+            "SELECT version,motivo,obligatoria,updated_at FROM mobile_data_version WHERE id=1", []
+        );
+        service_return(['data'=>[
+            'notificaciones'=>$items,
+            'usuarios'=>$usuarios,
+            'roles'=>$roles,
+            'version'=>$version[0] ?? ['version'=>1,'motivo'=>'','obligatoria'=>0],
+        ],'message'=>'Notificaciones consultadas.']);
+    }
+
+    private function firebaseBase64Url($value)
+    {
+        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+    }
+
+    private function firebaseCredentials()
+    {
+        $configuredPath = trim((string)getenv('FIREBASE_SERVICE_ACCOUNT'));
+        $path = $configuredPath !== ''
+            ? $configuredPath
+            : dirname(__DIR__, 2).'/.agronomo-secrets/firebase-service-account.json';
+        if (!is_file($path) || !is_readable($path)) {
+            throw new RuntimeException('Firebase Admin no está configurado en el servidor.');
+        }
+        $credentials = json_decode((string)file_get_contents($path), true);
+        if (!is_array($credentials)
+            || empty($credentials['client_email'])
+            || empty($credentials['private_key'])
+            || empty($credentials['project_id'])) {
+            throw new RuntimeException('La credencial privada de Firebase no es válida.');
+        }
+        return $credentials;
+    }
+
+    private function firebaseAccessToken($credentials)
+    {
+        $now = time();
+        $header = $this->firebaseBase64Url(json_encode(['alg'=>'RS256','typ'=>'JWT']));
+        $claims = $this->firebaseBase64Url(json_encode([
+            'iss'=>$credentials['client_email'],
+            'scope'=>'https://www.googleapis.com/auth/firebase.messaging',
+            'aud'=>'https://oauth2.googleapis.com/token',
+            'iat'=>$now,
+            'exp'=>$now + 3600,
+        ]));
+        $unsigned = $header.'.'.$claims;
+        $signature = '';
+        if (!openssl_sign($unsigned, $signature, $credentials['private_key'], OPENSSL_ALGO_SHA256)) {
+            throw new RuntimeException('No fue posible firmar la solicitud de Firebase.');
+        }
+        $assertion = $unsigned.'.'.$this->firebaseBase64Url($signature);
+        $curl = curl_init('https://oauth2.googleapis.com/token');
+        curl_setopt_array($curl, [
+            CURLOPT_POST=>true,
+            CURLOPT_RETURNTRANSFER=>true,
+            CURLOPT_CONNECTTIMEOUT=>10,
+            CURLOPT_TIMEOUT=>25,
+            CURLOPT_HTTPHEADER=>['Content-Type: application/x-www-form-urlencoded'],
+            CURLOPT_POSTFIELDS=>http_build_query([
+                'grant_type'=>'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                'assertion'=>$assertion,
+            ]),
+        ]);
+        $body = curl_exec($curl);
+        $curlError = curl_error($curl);
+        $status = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+        $response = json_decode((string)$body, true);
+        if ($status < 200 || $status >= 300 || empty($response['access_token'])) {
+            $detail = $response['error_description'] ?? $response['error'] ?? $curlError;
+            throw new RuntimeException('Firebase no autorizó al servidor: '.substr((string)$detail, 0, 180));
+        }
+        return $response['access_token'];
+    }
+
+    private function sendFirebaseMessage($projectId, $accessToken, $token, $notification)
+    {
+        $url = 'https://fcm.googleapis.com/v1/projects/'.rawurlencode($projectId).'/messages:send';
+        $payload = [
+            'message'=>[
+                'token'=>$token,
+                'notification'=>[
+                    'title'=>$notification['titulo'],
+                    'body'=>$notification['mensaje'],
+                ],
+                'data'=>[
+                    'notification_id'=>(string)$notification['id'],
+                    'requires_update'=>(string)((int)$notification['requiere_actualizacion']),
+                    'mandatory_update'=>(string)((int)$notification['actualizacion_obligatoria']),
+                    'data_version'=>(string)($notification['data_version'] ?? ''),
+                ],
+                'android'=>[
+                    'priority'=>'high',
+                    'notification'=>[
+                        'channel_id'=>'agronomo_notifications',
+                        'sound'=>'default',
+                        'notification_count'=>1,
+                    ],
+                ],
+                'apns'=>[
+                    'headers'=>['apns-priority'=>'10'],
+                    'payload'=>['aps'=>['sound'=>'default','badge'=>1]],
+                ],
+            ],
+        ];
+        $curl = curl_init($url);
+        curl_setopt_array($curl, [
+            CURLOPT_POST=>true,
+            CURLOPT_RETURNTRANSFER=>true,
+            CURLOPT_CONNECTTIMEOUT=>10,
+            CURLOPT_TIMEOUT=>25,
+            CURLOPT_HTTPHEADER=>[
+                'Authorization: Bearer '.$accessToken,
+                'Content-Type: application/json; charset=utf-8',
+            ],
+            CURLOPT_POSTFIELDS=>json_encode($payload, JSON_UNESCAPED_UNICODE),
+        ]);
+        $body = curl_exec($curl);
+        $curlError = curl_error($curl);
+        $status = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+        $response = json_decode((string)$body, true);
+        if ($status >= 200 && $status < 300 && !empty($response['name'])) {
+            return ['success'=>true,'status'=>$status,'error'=>'','invalid_token'=>false];
+        }
+        $error = $response['error']['message'] ?? $curlError ?: 'Respuesta HTTP '.$status;
+        $fcmStatus = $response['error']['details'][0]['errorCode'] ?? '';
+        return [
+            'success'=>false,
+            'status'=>$status,
+            'error'=>substr((string)$error, 0, 240),
+            'invalid_token'=>in_array($fcmStatus, ['UNREGISTERED','INVALID_ARGUMENT'], true),
+        ];
+    }
+
+    private function dispatchNotificationPush($notificationId)
+    {
+        $rows = $this->model->queryPrepared(
+            "SELECT n.id,n.titulo,n.mensaje,n.requiere_actualizacion,n.actualizacion_obligatoria,n.data_version,
+                    d.usuario_id,a.fcm_token
+             FROM notificaciones_mobile n
+             JOIN notificacion_destinatarios d ON d.notificacion_id=n.id
+             LEFT JOIN auth_tokens a ON a.user_id=d.usuario_id
+                  AND a.revoked_at IS NULL AND a.expires_at>NOW()
+                  AND a.fcm_token IS NOT NULL AND a.fcm_token<>''
+             WHERE n.id=:id
+             ORDER BY d.usuario_id,a.id DESC",
+            [':id'=>$notificationId]
+        );
+        if (!$rows) {
+            return ['sent'=>0,'errors'=>0,'without_token'=>0,'devices'=>0];
+        }
+        $byUser = [];
+        foreach ($rows as $row) {
+            $userId = (string)$row['usuario_id'];
+            if (!isset($byUser[$userId])) $byUser[$userId] = ['notification'=>$row,'tokens'=>[]];
+            $token = trim((string)($row['fcm_token'] ?? ''));
+            if ($token !== '') $byUser[$userId]['tokens'][$token] = true;
+        }
+        $summary = ['sent'=>0,'errors'=>0,'without_token'=>0,'devices'=>0];
+        try {
+            $credentials = $this->firebaseCredentials();
+            $accessToken = $this->firebaseAccessToken($credentials);
+            foreach ($byUser as $userId=>$entry) {
+                $tokens = array_keys($entry['tokens']);
+                if (!$tokens) {
+                    $summary['without_token']++;
+                    $this->model->executePrepared(
+                        "UPDATE notificacion_destinatarios SET push_estado='SIN_TOKEN',push_error='El usuario no tiene un dispositivo registrado.' WHERE notificacion_id=:id AND usuario_id=:usuario",
+                        [':id'=>$notificationId,':usuario'=>$userId]
+                    );
+                    continue;
+                }
+                $delivered = false;
+                $errors = [];
+                foreach ($tokens as $token) {
+                    $summary['devices']++;
+                    $result = $this->sendFirebaseMessage(
+                        $credentials['project_id'], $accessToken, $token, $entry['notification']
+                    );
+                    if ($result['success']) {
+                        $delivered = true;
+                    } else {
+                        $errors[] = $result['error'];
+                        if ($result['invalid_token']) {
+                            $this->model->executePrepared(
+                                "UPDATE auth_tokens SET fcm_token=NULL WHERE fcm_token=:token",
+                                [':token'=>$token]
+                            );
+                        }
+                    }
+                }
+                if ($delivered) {
+                    $summary['sent']++;
+                    $this->model->executePrepared(
+                        "UPDATE notificacion_destinatarios SET push_estado='ENVIADA',push_error=NULL WHERE notificacion_id=:id AND usuario_id=:usuario",
+                        [':id'=>$notificationId,':usuario'=>$userId]
+                    );
+                } else {
+                    $summary['errors']++;
+                    $error = implode(' | ', array_unique($errors));
+                    $this->model->executePrepared(
+                        "UPDATE notificacion_destinatarios SET push_estado='ERROR',push_error=:error WHERE notificacion_id=:id AND usuario_id=:usuario",
+                        [':error'=>substr($error,0,255),':id'=>$notificationId,':usuario'=>$userId]
+                    );
+                }
+            }
+        } catch (Throwable $e) {
+            $summary['errors'] = count($byUser);
+            $this->model->executePrepared(
+                "UPDATE notificacion_destinatarios SET push_estado='ERROR',push_error=:error WHERE notificacion_id=:id",
+                [':error'=>substr($e->getMessage(),0,255),':id'=>$notificationId]
+            );
+        }
+        $state = $summary['sent'] > 0
+            ? (($summary['errors'] + $summary['without_token']) > 0 ? 'PARCIAL' : 'ENVIADA')
+            : 'ERROR';
+        $resultText = $summary['sent'].' usuarios notificados; '.$summary['errors'].' errores; '
+            .$summary['without_token'].' sin token; '.$summary['devices'].' dispositivos procesados.';
+        $this->model->executePrepared(
+            "UPDATE notificaciones_mobile SET estado=:estado,resultado_push=:resultado WHERE id=:id",
+            [':estado'=>$state,':resultado'=>substr($resultText,0,500),':id'=>$notificationId]
+        );
+        $summary['state'] = $state;
+        return $summary;
+    }
+
+    public function sendNotificacionWeb($data)
+    {
+        $titulo = trim((string)($data['titulo'] ?? ''));
+        $mensaje = trim((string)($data['mensaje'] ?? ''));
+        $audiencia = strtoupper(trim((string)($data['audiencia'] ?? 'TODOS')));
+        $valores = array_values(array_unique(array_filter(array_map(
+            'strval', is_array($data['audiencia_valores'] ?? null) ? $data['audiencia_valores'] : []
+        ))));
+        $requiere = !empty($data['requiere_actualizacion']) ? 1 : 0;
+        $obligatoria = $requiere && !empty($data['actualizacion_obligatoria']) ? 1 : 0;
+        if ($titulo === '' || $mensaje === '') {
+            service_return(['success'=>false,'message'=>'El título y el mensaje son obligatorios.','data'=>[]]);
+        }
+        if (!in_array($audiencia, ['TODOS','ROL','USUARIOS'], true)) $audiencia = 'TODOS';
+        if ($audiencia !== 'TODOS' && !$valores) {
+            service_return(['success'=>false,'message'=>'Selecciona al menos un destinatario.','data'=>[]]);
+        }
+        $actor = (string)($_SESSION['agronomo_user_id'] ?? '');
+        $id = bin2hex(random_bytes(16));
+        $ahora = date('Y-m-d H:i:s');
+        $this->model->beginTransaction();
+        try {
+            $dataVersion = null;
+            if ($requiere) {
+                $this->model->executePrepared(
+                    "UPDATE mobile_data_version
+                     SET version=version+1,motivo=:motivo,obligatoria=:obligatoria,updated_at=:ahora,updated_by=:actor
+                     WHERE id=1",
+                    [':motivo'=>$mensaje,':obligatoria'=>$obligatoria,':ahora'=>$ahora,':actor'=>$actor]
+                );
+                $row = $this->model->queryPrepared("SELECT version FROM mobile_data_version WHERE id=1", []);
+                $dataVersion = (int)($row[0]['version'] ?? 1);
+            }
+            $this->model->executePrepared(
+                "INSERT INTO notificaciones_mobile
+                 (id,titulo,mensaje,audiencia,audiencia_valores,requiere_actualizacion,actualizacion_obligatoria,data_version,estado,created_at,created_by)
+                 VALUES(:id,:titulo,:mensaje,:audiencia,:valores,:requiere,:obligatoria,:version,'PENDIENTE',:ahora,:actor)",
+                [':id'=>$id,':titulo'=>substr($titulo,0,100),':mensaje'=>substr($mensaje,0,500),
+                 ':audiencia'=>$audiencia,':valores'=>$valores ? json_encode($valores) : null,
+                 ':requiere'=>$requiere,':obligatoria'=>$obligatoria,':version'=>$dataVersion,
+                 ':ahora'=>$ahora,':actor'=>$actor]
+            );
+            $params = [':actor'=>$actor];
+            $where = "u.void='1' AND u.id<>:actor";
+            if ($audiencia !== 'TODOS') {
+                $placeholders = [];
+                foreach ($valores as $index=>$value) {
+                    $key = ':target_'.$index;
+                    $placeholders[] = $key;
+                    $params[$key] = $value;
+                }
+                $column = $audiencia === 'ROL' ? 'u.rol_id' : 'u.id';
+                $where .= " AND $column IN (".implode(',', $placeholders).")";
+            }
+            $destinatarios = $this->model->queryPrepared("SELECT u.id FROM `user` u WHERE $where", $params);
+            foreach ($destinatarios as $destinatario) {
+                $this->model->executePrepared(
+                    "INSERT INTO notificacion_destinatarios(notificacion_id,usuario_id,push_estado)
+                     VALUES(:notificacion,:usuario,'PENDIENTE')",
+                    [':notificacion'=>$id,':usuario'=>$destinatario['id']]
+                );
+            }
+            $this->model->commit();
+            $push = $this->dispatchNotificationPush($id);
+            $message = $push['sent'] > 0
+                ? 'Notificación enviada a '.$push['sent'].' usuarios ('.$push['devices'].' dispositivos).'
+                : 'La notificación fue creada, pero Firebase no pudo entregarla.';
+            if ($push['errors'] || $push['without_token']) {
+                $message .= ' '.$push['errors'].' con error y '.$push['without_token'].' sin dispositivo registrado.';
+            }
+            service_return(['data'=>[
+                'id'=>$id,'destinatarios'=>count($destinatarios),'data_version'=>$dataVersion,'push'=>$push,
+            ],'message'=>$message]);
+        } catch (Throwable $e) {
+            $this->model->rollBack();
+            throw $e;
+        }
+    }
+
+    public function retryNotificacionPushWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        if ($id === '') {
+            service_return(['success'=>false,'message'=>'La notificación es requerida.','data'=>[]]);
+        }
+        $exists = $this->model->queryPrepared(
+            "SELECT id FROM notificaciones_mobile WHERE id=:id LIMIT 1", [':id'=>$id]
+        );
+        if (!$exists) {
+            service_return(['success'=>false,'message'=>'La notificación no existe.','data'=>[]]);
+        }
+        $push = $this->dispatchNotificationPush($id);
+        service_return(['data'=>['id'=>$id,'push'=>$push],
+            'message'=>'Reintento terminado: '.$push['sent'].' usuarios notificados, '.$push['errors'].' errores y '.$push['without_token'].' sin token.']);
+    }
+
+    public function getMobileUpdateStatus($data)
+    {
+        $usuario = trim((string)($data['authenticated_user_id'] ?? ''));
+        $version = $this->model->queryPrepared(
+            "SELECT version,motivo,obligatoria,updated_at FROM mobile_data_version WHERE id=1", []
+        );
+        $notificaciones = $this->model->queryPrepared(
+            "SELECT n.id,n.titulo,n.mensaje,n.requiere_actualizacion,n.actualizacion_obligatoria,
+                    n.data_version,n.created_at,d.leida_at,d.confirmada_at
+             FROM notificacion_destinatarios d
+             JOIN notificaciones_mobile n ON n.id=d.notificacion_id
+             WHERE d.usuario_id=:usuario AND d.confirmada_at IS NULL
+             ORDER BY n.created_at DESC LIMIT 20",
+            [':usuario'=>$usuario]
+        );
+        service_return(['data'=>[
+            'version'=>$version[0] ?? ['version'=>1,'motivo'=>'','obligatoria'=>0],
+            'notificaciones'=>$notificaciones,
+        ],'message'=>'Estado móvil consultado.']);
+    }
+
+    public function getMobileNotifications($data)
+    {
+        $usuario = trim((string)($data['authenticated_user_id'] ?? ''));
+        $notificaciones = $this->model->queryPrepared(
+            "SELECT n.id,n.titulo,n.mensaje,n.requiere_actualizacion,
+                    n.actualizacion_obligatoria,n.data_version,n.created_at,
+                    d.leida_at,d.confirmada_at
+             FROM notificacion_destinatarios d
+             JOIN notificaciones_mobile n ON n.id=d.notificacion_id
+             WHERE d.usuario_id=:usuario
+             ORDER BY n.created_at DESC LIMIT 100",
+            [':usuario'=>$usuario]
+        );
+        $pendientes = 0;
+        foreach ($notificaciones as $notificacion) {
+            if (empty($notificacion['leida_at'])) $pendientes++;
+        }
+        service_return(['data'=>[
+            'notificaciones'=>$notificaciones,
+            'no_leidas'=>$pendientes,
+        ],'message'=>'Bandeja de notificaciones consultada.']);
+    }
+
+    public function markMobileNotificationsRead($data)
+    {
+        $usuario = trim((string)($data['authenticated_user_id'] ?? ''));
+        $id = trim((string)($data['notificacion_id'] ?? ''));
+        $params = [':ahora'=>date('Y-m-d H:i:s'),':usuario'=>$usuario];
+        $where = '';
+        if ($id !== '') {
+            $where = ' AND notificacion_id=:id';
+            $params[':id'] = $id;
+        }
+        $this->model->executePrepared(
+            "UPDATE notificacion_destinatarios
+             SET leida_at=COALESCE(leida_at,:ahora)
+             WHERE usuario_id=:usuario".$where,
+            $params
+        );
+        service_return(['data'=>['id'=>$id],'message'=>'Notificaciones marcadas como leídas.']);
+    }
+
+    public function confirmMobileNotification($data)
+    {
+        $usuario = trim((string)($data['authenticated_user_id'] ?? ''));
+        $id = trim((string)($data['notificacion_id'] ?? ''));
+        // Un aviso informativo queda cumplido al aceptarlo. Si exige
+        // actualización, aquí solo se marca leído; completeMobileDataUpdate
+        // lo confirma después de terminar y validar toda la descarga.
+        $this->model->executePrepared(
+            "UPDATE notificacion_destinatarios d
+             JOIN notificaciones_mobile n ON n.id=d.notificacion_id
+             SET d.leida_at=COALESCE(d.leida_at,:ahora_leida),
+                 d.confirmada_at=CASE WHEN n.requiere_actualizacion=0 THEN :ahora_confirmada ELSE d.confirmada_at END
+             WHERE d.notificacion_id=:id AND d.usuario_id=:usuario",
+            [
+                ':ahora_leida'=>date('Y-m-d H:i:s'),
+                ':ahora_confirmada'=>date('Y-m-d H:i:s'),
+                ':id'=>$id,
+                ':usuario'=>$usuario,
+            ]
+        );
+        service_return(['data'=>['id'=>$id],'message'=>'Notificación confirmada.']);
+    }
+
+    public function completeMobileDataUpdate($data)
+    {
+        $usuario = trim((string)($data['authenticated_user_id'] ?? ''));
+        $version = $this->model->queryPrepared(
+            "SELECT version FROM mobile_data_version WHERE id=1", []
+        );
+        $numero = (int)($version[0]['version'] ?? 1);
+        $ahora = date('Y-m-d H:i:s');
+        $this->model->executePrepared(
+            "UPDATE notificacion_destinatarios d
+             JOIN notificaciones_mobile n ON n.id=d.notificacion_id
+             SET d.leida_at=COALESCE(d.leida_at,:ahora_leida),d.confirmada_at=:ahora_confirmada
+             WHERE d.usuario_id=:usuario AND d.confirmada_at IS NULL
+               AND n.requiere_actualizacion=1
+               AND (n.data_version IS NULL OR n.data_version<=:version)",
+            [
+                ':ahora_leida'=>$ahora,
+                ':ahora_confirmada'=>$ahora,
+                ':usuario'=>$usuario,
+                ':version'=>$numero,
+            ]
+        );
+        service_return(['data'=>['version'=>$numero,'completed_at'=>$ahora],
+            'message'=>'Actualización confirmada para el usuario.']);
+    }
+
+    public function registerMobilePushToken($data)
+    {
+        $usuario = trim((string)($data['authenticated_user_id'] ?? ''));
+        $apiToken = trim((string)($data['api_token'] ?? ''));
+        $fcmToken = trim((string)($data['fcm_token'] ?? ''));
+        if ($fcmToken === '') {
+            service_return(['success'=>false,'message'=>'El token de notificaciones es requerido.','data'=>[]]);
+        }
+        $this->model->executePrepared(
+            "UPDATE auth_tokens SET fcm_token=:fcm
+             WHERE user_id=:usuario AND token_hash=:hash AND revoked_at IS NULL",
+            [':fcm'=>substr($fcmToken,0,512),':usuario'=>$usuario,':hash'=>hash('sha256',$apiToken)]
+        );
+        service_return(['data'=>[],'message'=>'Dispositivo registrado para notificaciones.']);
     }
 }

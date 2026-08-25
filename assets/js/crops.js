@@ -66,8 +66,11 @@ function renderCropsTable() {
   cropsCatalogBody.innerHTML = cropState.crops.map((crop) => {
     const total = cropState.labores.filter((labor) => labor.cultivo_id === crop.id && labor.voided === '1').length;
     const actions = [
-      canEditCrop ? `<button class="table-action" data-edit-crop="${escapeCropHtml(crop.id)}">Editar</button>` : '',
-      canAddLabor ? `<button class="table-action accent" data-add-labor="${escapeCropHtml(crop.id)}">+ Labor</button>` : '',
+      canEditCrop ? `<button class="table-action table-action-toggle${crop.voided === '1' ? ' danger' : ''}" data-toggle-crop="${escapeCropHtml(crop.id)}">${crop.voided === '1' ? 'Desactivar' : 'Activar'}</button>` : '',
+      rowMenu([
+        canEditCrop ? `<button type="button" class="row-menu-item" data-edit-crop="${escapeCropHtml(crop.id)}">Editar</button>` : '',
+        canAddLabor ? `<button type="button" class="row-menu-item" data-add-labor="${escapeCropHtml(crop.id)}">+ Labor</button>` : '',
+      ]),
     ].join('');
     return `<tr>
       <td><strong>${escapeCropHtml(crop.descripcion)}</strong></td>
@@ -91,7 +94,7 @@ function renderCategoriesCatalogTable() {
       <td>${escapeCropHtml(category.codigo || '—')}</td>
       <td><strong>${total}</strong></td>
       <td><span class="status-pill ${category.voided === '1' ? 'active' : 'inactive'}">${category.voided === '1' ? 'Activa' : 'Inactiva'}</span></td>
-      <td><div class="table-actions">${canEditCategory ? `<button class="table-action" data-edit-category="${escapeCropHtml(category.id)}">Editar</button>` : ''}</div></td>
+      <td><div class="table-actions">${canEditCategory ? `<button class="table-action" data-edit-category="${escapeCropHtml(category.id)}">Editar</button><button class="table-action table-action-toggle${category.voided === '1' ? ' danger' : ''}" data-toggle-category="${escapeCropHtml(category.id)}">${category.voided === '1' ? 'Desactivar' : 'Activar'}</button>` : ''}</div></td>
     </tr>`;
   }).join('');
   bindLaborTableActions(categoriesCatalogBody);
@@ -115,9 +118,12 @@ function renderCropLaborsTable() {
     }
     labores.forEach((labor) => {
       const actions = [
-        canEditLabor ? `<button class="table-action" data-edit-labor="${escapeCropHtml(labor.id)}">Editar labor</button>` : '',
-        canAddLabor ? `<button class="table-action accent" data-add-labor="${escapeCropHtml(crop.id)}">+ Labor</button>` : '',
-        canEditCrop ? `<button class="table-action quiet" data-edit-crop="${escapeCropHtml(crop.id)}">Cultivo</button>` : '',
+        canEditLabor ? `<button class="table-action table-action-toggle${labor.voided === '1' ? ' danger' : ''}" data-toggle-labor="${escapeCropHtml(labor.id)}">${labor.voided === '1' ? 'Desactivar' : 'Activar'}</button>` : '',
+        rowMenu([
+          canEditLabor ? `<button type="button" class="row-menu-item" data-edit-labor="${escapeCropHtml(labor.id)}">Editar labor</button>` : '',
+          canAddLabor ? `<button type="button" class="row-menu-item" data-add-labor="${escapeCropHtml(crop.id)}">+ Labor</button>` : '',
+          canEditCrop ? `<button type="button" class="row-menu-item" data-edit-crop="${escapeCropHtml(crop.id)}">Ver cultivo</button>` : '',
+        ]),
       ].join('');
       rows.push(`<tr><td>${cropCell}</td><td><strong>${escapeCropHtml(labor.nombre)}</strong></td><td>${escapeCropHtml(labor.categoria_nombre || 'Sin categoría')}</td><td>${escapeCropHtml(labor.codigo || '—')}</td><td>${laborStatus(labor)}</td><td><div class="table-actions">${actions}</div></td></tr>`);
     });
@@ -140,8 +146,11 @@ function renderCategoryLaborsTable() {
     }
     labores.forEach((labor) => {
       const actions = [
-        canEditLabor ? `<button class="table-action" data-edit-labor="${escapeCropHtml(labor.id)}">Editar labor</button>` : '',
-        (category.virtual || !canEditCategory) ? '' : `<button class="table-action quiet" data-edit-category="${escapeCropHtml(category.id)}">Categoría</button>`,
+        canEditLabor ? `<button class="table-action table-action-toggle${labor.voided === '1' ? ' danger' : ''}" data-toggle-labor="${escapeCropHtml(labor.id)}">${labor.voided === '1' ? 'Desactivar' : 'Activar'}</button>` : '',
+        rowMenu([
+          canEditLabor ? `<button type="button" class="row-menu-item" data-edit-labor="${escapeCropHtml(labor.id)}">Editar labor</button>` : '',
+          (category.virtual || !canEditCategory) ? '' : `<button type="button" class="row-menu-item" data-edit-category="${escapeCropHtml(category.id)}">Ver categoría</button>`,
+        ]),
       ].join('');
       rows.push(`<tr><td>${categoryCell}</td><td><strong>${escapeCropHtml(labor.nombre)}</strong></td><td>${escapeCropHtml(labor.cultivo_nombre || '—')}</td><td>${escapeCropHtml(labor.codigo || '—')}</td><td>${laborStatus(labor)}</td><td><div class="table-actions">${actions}</div></td></tr>`);
     });
@@ -153,7 +162,7 @@ function renderCategoryLaborsTable() {
 function renderAllLaborsTable() {
   destroyCropTable('allTable');
   const canEditLabor = cropCan('labores.editar');
-  allLaborsBody.innerHTML = cropState.labores.map((labor) => `<tr><td><strong>${escapeCropHtml(labor.nombre)}</strong></td><td>${escapeCropHtml(labor.cultivo_nombre || '—')}</td><td>${escapeCropHtml(labor.categoria_nombre || 'Sin categoría')}</td><td>${escapeCropHtml(labor.codigo || '—')}</td><td>${laborStatus(labor)}</td><td>${canEditLabor ? `<button class="table-action" data-edit-labor="${escapeCropHtml(labor.id)}">Editar labor</button>` : ''}</td></tr>`).join('');
+  allLaborsBody.innerHTML = cropState.labores.map((labor) => `<tr><td><strong>${escapeCropHtml(labor.nombre)}</strong></td><td>${escapeCropHtml(labor.cultivo_nombre || '—')}</td><td>${escapeCropHtml(labor.categoria_nombre || 'Sin categoría')}</td><td>${escapeCropHtml(labor.codigo || '—')}</td><td>${laborStatus(labor)}</td><td><div class="table-actions">${canEditLabor ? `<button class="table-action" data-edit-labor="${escapeCropHtml(labor.id)}">Editar labor</button><button class="table-action table-action-toggle${labor.voided === '1' ? ' danger' : ''}" data-toggle-labor="${escapeCropHtml(labor.id)}">${labor.voided === '1' ? 'Desactivar' : 'Activar'}</button>` : ''}</div></td></tr>`).join('');
   bindLaborTableActions(allLaborsBody);
   createLaborTable('#all-labors-table', 'allTable', 'Labor, cultivo o categoría…');
 }
@@ -163,6 +172,51 @@ function bindLaborTableActions(container) {
   container.querySelectorAll('[data-add-labor]').forEach((button) => button.onclick = () => openLaborDialog(null, button.dataset.addLabor));
   container.querySelectorAll('[data-edit-labor]').forEach((button) => button.onclick = () => openLaborDialog(cropState.labores.find((labor) => labor.id === button.dataset.editLabor)));
   container.querySelectorAll('[data-edit-category]').forEach((button) => button.onclick = () => openCategoryDialog(categoryState.categories.find((category) => category.id === button.dataset.editCategory)));
+  container.querySelectorAll('[data-toggle-crop]').forEach((button) => button.onclick = () => toggleCrop(button.dataset.toggleCrop));
+  container.querySelectorAll('[data-toggle-labor]').forEach((button) => button.onclick = () => toggleLabor(button.dataset.toggleLabor));
+  container.querySelectorAll('[data-toggle-category]').forEach((button) => button.onclick = () => toggleCategory(button.dataset.toggleCategory));
+}
+
+async function toggleCrop(id) {
+  const crop = cropState.crops.find((item) => item.id === id);
+  if (!crop) return;
+  const result = await Swal.fire({
+    title: `¿${crop.voided === '1' ? 'Desactivar' : 'Activar'} este cultivo?`,
+    text: 'El catálogo se actualizará para la app móvil.',
+    icon: 'warning', showCancelButton: true,
+    confirmButtonText: 'Sí, continuar', cancelButtonText: 'Cancelar', confirmButtonColor: '#173f32',
+  });
+  if (!result.value) return;
+  try { await cropApi('toggleCultivoWeb', {id}); await loadCrops(true); showCropMessage('Estado del cultivo actualizado.', true); }
+  catch (error) { Swal.fire({title: 'No fue posible', text: error.message, icon: 'error'}); }
+}
+
+async function toggleLabor(id) {
+  const labor = cropState.labores.find((item) => item.id === id);
+  if (!labor) return;
+  const result = await Swal.fire({
+    title: `¿${labor.voided === '1' ? 'Desactivar' : 'Activar'} esta labor?`,
+    text: 'El catálogo se actualizará para la app móvil.',
+    icon: 'warning', showCancelButton: true,
+    confirmButtonText: 'Sí, continuar', cancelButtonText: 'Cancelar', confirmButtonColor: '#173f32',
+  });
+  if (!result.value) return;
+  try { await cropApi('toggleLaborWeb', {id}); await loadCrops(true); showCropMessage('Estado de la labor actualizado.', true); }
+  catch (error) { Swal.fire({title: 'No fue posible', text: error.message, icon: 'error'}); }
+}
+
+async function toggleCategory(id) {
+  const category = categoryState.categories.find((item) => item.id === id);
+  if (!category) return;
+  const result = await Swal.fire({
+    title: `¿${category.voided === '1' ? 'Desactivar' : 'Activar'} esta categoría?`,
+    text: 'El catálogo se actualizará para la app móvil.',
+    icon: 'warning', showCancelButton: true,
+    confirmButtonText: 'Sí, continuar', cancelButtonText: 'Cancelar', confirmButtonColor: '#173f32',
+  });
+  if (!result.value) return;
+  try { await cropApi('toggleCategoriaLaborWeb', {id}); await loadCrops(true); showCropMessage('Estado de la categoría actualizado.', true); }
+  catch (error) { Swal.fire({title: 'No fue posible', text: error.message, icon: 'error'}); }
 }
 
 function openCropDialog(crop = null) {
@@ -183,7 +237,10 @@ function openLaborDialog(labor = null, cropId = '') {
   document.querySelector('#labor-dialog-title').textContent = labor ? 'Editar labor' : 'Nueva labor';
   document.querySelector('#labor-id').value = labor?.id || ''; populateLaborCropSelect(labor?.cultivo_id || cropId);
   document.querySelector('#labor-name').value = labor?.nombre || ''; document.querySelector('#labor-code').value = labor?.codigo || '';
-  populateLaborCategorySelect(labor?.categoria_labor_id || ''); document.querySelector('#labor-dialog').showModal();
+  populateLaborCategorySelect(labor?.categoria_labor_id || '');
+  document.querySelector('#labor-dialog').showModal();
+  initializeStandardSelect2('#labor-crop-id', {dialog:'#labor-dialog', placeholder:'Busca y selecciona un cultivo…'});
+  initializeStandardSelect2('#labor-category', {dialog:'#labor-dialog', placeholder:'Sin categoría'});
 }
 
 function openCategoryDialog(category = null) {
@@ -206,18 +263,18 @@ document.querySelector('#new-labor-global-button').addEventListener('click', () 
 
 document.querySelector('#crop-form').addEventListener('submit', async (event) => {
   event.preventDefault(); const user = currentCropUser();
-  try { await cropApi('saveCultivoWeb', {id: document.querySelector('#crop-id').value, descripcion: document.querySelector('#crop-name').value, codigo: document.querySelector('#crop-code').value, created_by: user.id || ''}); document.querySelector('#crop-dialog').close(); await loadCrops(true); }
+  try { await cropApi('saveCultivoWeb', {id: document.querySelector('#crop-id').value, descripcion: document.querySelector('#crop-name').value, codigo: document.querySelector('#crop-code').value, created_by: user.id || ''}); document.querySelector('#crop-dialog').close(); await loadCrops(true); showCropMessage('Cultivo guardado.', true); }
   catch (error) { showCropMessage(error.message); }
 });
 
 document.querySelector('#labor-form').addEventListener('submit', async (event) => {
   event.preventDefault(); const user = currentCropUser();
-  try { await cropApi('saveLaborWeb', {id: document.querySelector('#labor-id').value, cultivo_id: document.querySelector('#labor-crop-id').value, nombre: document.querySelector('#labor-name').value, codigo: document.querySelector('#labor-code').value, categoria_labor_id: document.querySelector('#labor-category').value, created_by: user.id || ''}); document.querySelector('#labor-dialog').close(); await loadCrops(true); }
+  try { await cropApi('saveLaborWeb', {id: document.querySelector('#labor-id').value, cultivo_id: document.querySelector('#labor-crop-id').value, nombre: document.querySelector('#labor-name').value, codigo: document.querySelector('#labor-code').value, categoria_labor_id: document.querySelector('#labor-category').value, created_by: user.id || ''}); document.querySelector('#labor-dialog').close(); await loadCrops(true); showCropMessage('Labor guardada.', true); }
   catch (error) { showCropMessage(error.message); }
 });
 
 document.querySelector('#category-form').addEventListener('submit', async (event) => {
   event.preventDefault(); const user = currentCropUser();
-  try { await cropApi('saveCategoriaLaborWeb', {id: document.querySelector('#category-id').value, descripcion: document.querySelector('#category-name').value, codigo: document.querySelector('#category-code').value, created_by: user.id || ''}); document.querySelector('#category-dialog').close(); await loadCrops(true); }
+  try { await cropApi('saveCategoriaLaborWeb', {id: document.querySelector('#category-id').value, descripcion: document.querySelector('#category-name').value, codigo: document.querySelector('#category-code').value, created_by: user.id || ''}); document.querySelector('#category-dialog').close(); await loadCrops(true); showCropMessage('Categoría guardada.', true); }
   catch (error) { showCropMessage(error.message); }
 });

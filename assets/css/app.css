@@ -70,7 +70,7 @@ button, input, textarea {
     display: flex;
     align-items: center;
     gap: 12px;
-    font-size:18px;
+    font-size: 18px;
     letter-spacing: -.02em;
     position: relative;
     z-index: 1
@@ -89,7 +89,7 @@ button, input, textarea {
 }
 
 .login-card .login-card-title {
-    font-size:27px;
+    font-size: 27px;
     line-height: 1.1;
     letter-spacing: -.02em;
     margin: 6px 0 0;
@@ -99,7 +99,7 @@ button, input, textarea {
 .login-card-logo {
     display: flex;
     justify-content: center;
-    margin: 6px 0 0
+    margin: 2px 0 0
 }
 
 .login-card-logo img {
@@ -121,7 +121,7 @@ button, input, textarea {
     background: var(--lime);
     color: var(--forest);
     font-family: var(--serif);
-    font-size:26px;
+    font-size: 26px;
     font-weight: 600;
     transform: rotate(-8deg)
 }
@@ -135,7 +135,7 @@ button, input, textarea {
 .eyebrow {
     text-transform: uppercase;
     letter-spacing: .14em;
-    font-size:14px;
+    font-size: 14px;
     font-weight: 700;
     margin: 0 0 18px;
     color: var(--forest-2)
@@ -159,7 +159,7 @@ button, input, textarea {
 .brand-copy>p:last-child {
     max-width: 600px;
     color: #d3ded7;
-    font-size:18px;
+    font-size: 18px;
     line-height: 1.7
 }
 
@@ -180,7 +180,7 @@ button, input, textarea {
 }
 
 .field-note p {
-    font-size:16px;
+    font-size: 16px;
     line-height: 1.5;
     margin: 0;
     color: #c0cec5
@@ -189,14 +189,14 @@ button, input, textarea {
 .access-panel {
     display: grid;
     place-items: center;
-    padding: 48px;
+    padding: 14px;
     background: var(--cream)
 }
 
 .login-card {
     width: min(430px, 100%);
     display: grid;
-    gap: 22px;
+    gap: 9px;
     animation: rise .65s ease both
 }
 
@@ -215,7 +215,7 @@ button, input, textarea {
 .field {
     display: grid;
     gap: 8px;
-    font-size:16px;
+    font-size: 16px;
     font-weight: 600
 }
 
@@ -241,7 +241,7 @@ button, input, textarea {
 .form-message {
     min-height: 18px;
     color: #a23b2a;
-    font-size:16px;
+    font-size: 16px;
     margin: -8px 0
 }
 
@@ -270,9 +270,10 @@ button, input, textarea {
 
 .privacy-note {
     text-align: center;
-    font-size:14px;
+    font-size: 14px;
     line-height: 1.5;
-    color: #8b918c
+    color: #8b918c;
+    margin: 0
 }
 
 .dashboard {
@@ -295,13 +296,13 @@ button, input, textarea {
 
 .compact {
     margin: 0 10px 48px;
-    font-size:17px
+    font-size: 17px
 }
 
 .compact .brand-leaf {
     width: 34px;
     height: 34px;
-    font-size:22px
+    font-size: 22px
 }
 
 .sidebar nav {
@@ -310,7 +311,7 @@ button, input, textarea {
 }
 
 .nav-label {
-    font-size:12px;
+    font-size: 12px;
     letter-spacing: .18em;
     text-transform: uppercase;
     color: #8da79a;
@@ -328,7 +329,7 @@ button, input, textarea {
     display: flex;
     gap: 12px;
     align-items: center;
-    font-size:16px
+    font-size: 16px
 }
 
 .nav-item:hover, .nav-item.active {
@@ -394,11 +395,11 @@ button, input, textarea {
 }
 
 .user-chip strong {
-    font-size:15px
+    font-size: 15px
 }
 
 .user-chip small {
-    font-size:13px;
+    font-size: 13px;
     color: var(--muted)
 }
 
@@ -456,7 +457,7 @@ button, input, textarea {
     grid-template-columns: auto 70px auto;
     align-items: center;
     gap: 10px;
-    font-size:13px;
+    font-size: 13px;
     text-transform: uppercase;
     letter-spacing: .12em
 }
@@ -492,7 +493,7 @@ button, input, textarea {
 }
 
 .metric-grid article p {
-    font-size:15px;
+    font-size: 15px;
     color: var(--muted);
     margin: 22px 0 5px
 }
@@ -504,7 +505,7 @@ button, input, textarea {
 .metric-grid small {
     display: block;
     color: #89918b;
-    font-size:13px;
+    font-size: 13px;
     margin-top: 6px
 }
 
@@ -565,11 +566,11 @@ button, input, textarea {
 }
 
 .next-steps li strong {
-    font-size:16px
+    font-size: 16px
 }
 
 .next-steps li p {
-    font-size:14px;
+    font-size: 14px;
     margin: 4px 0 0
 }
 
@@ -608,7 +609,7 @@ button, input, textarea {
     }
 
     .brand-copy h1 {
-        font-size:48px
+        font-size: 48px
     }
 
     .field-note {
@@ -646,7 +647,7 @@ button, input, textarea {
 
     .nav-item {
         justify-content: center;
-        font-size:19px !important;
+        font-size: 19px !important;
         padding: 13px
     }
 
@@ -673,6 +674,7 @@ button, input, textarea {
 }
 
 @media(max-width:520px) {
+
     /* En móvil solo cabe el card de credenciales sin scroll: se oculta el
        panel de marca (hero oscuro con el eslogan) y .login-layout, al quedar
        con un solo hijo en su única fila, lo estira para llenar el 100vh y
@@ -682,7 +684,7 @@ button, input, textarea {
     }
 
     .login-card .login-card-title {
-        font-size:22px
+        font-size: 22px
     }
 
     .login-card-logo img {
@@ -706,7 +708,7 @@ button, input, textarea {
     }
 
     .hero-card h1 {
-        font-size:40px
+        font-size: 40px
     }
 }
 

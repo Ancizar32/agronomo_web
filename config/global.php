@@ -52,14 +52,28 @@ class Global_class
     private $rollback;
 
 
+    private $database;
+
     public function __construct()
     {
-        $database = new Database();
-        $db = $database->dbConnection();
-        $this->dbh = $db;
+        $this->database = new Database();
+        $this->dbh = $this->database->dbConnection();
+        // dbh2 (latin1) ya no se abre aquí de una vez: la app moderna
+        // (AgronomoController, vía model::queryPrepared/executePrepared)
+        // solo usa $dbh (utf8) — valid_user()/myQueryUtf()/
+        // prepare_statement_utf() son las únicas que tocan dbh2, y son
+        // legacy sin uso desde este controlador. Abrir esa segunda conexión
+        // en TODAS las peticiones costaba un round-trip de red completo de
+        // más por cada llamada a la API sin ningún beneficio — ahora se
+        // conecta perezosamente, solo si algo realmente la necesita.
+    }
 
-        $db2 = $database->dbConnection2();
-        $this->dbh2 = $db2;
+    private function getDbh2()
+    {
+        if ($this->dbh2 === null) {
+            $this->dbh2 = $this->database->dbConnection2();
+        }
+        return $this->dbh2;
     }
 
     public function beginTransaction()
@@ -89,7 +103,7 @@ class Global_class
     public function valid_user(array $parametro)
     {
         try {
-            $query = $this->dbh2->prepare("select * from user where user= :user and code= :psw and void=1");
+            $query = $this->getDbh2()->prepare("select * from user where user= :user and code= :psw and void=1");
             $query->execute([
                 'user' => $parametro['user'],
                 'psw' => $parametro['psw'],
@@ -128,14 +142,15 @@ class Global_class
     function prepare_statement_utf($query, $parameters = [])
     {
         try {
-            $this->dbh2->beginTransaction();
-            $this->statement = $this->dbh2->prepare($query);
+            $dbh2 = $this->getDbh2();
+            $dbh2->beginTransaction();
+            $this->statement = $dbh2->prepare($query);
             $this->statement->execute($parameters);
-            $this->dbh2->commit();
+            $dbh2->commit();
             return $this->statement->rowcount();
         } catch (PDOException $e) {
             $this->statement->rollBack();
-            $this->dbh2->rollBack();
+            $this->getDbh2()->rollBack();
             throw $e;
         }
     }
@@ -201,7 +216,7 @@ class Global_class
     {
         try {
 
-            $query = $this->dbh2->prepare("SELECT a.query, a.parametes as param FROM report_query as a where a.report_id = :report_id");
+            $query = $this->getDbh2()->prepare("SELECT a.query, a.parametes as param FROM report_query as a where a.report_id = :report_id");
             $query->execute([
                 'report_id' => $parametro['report_id']
             ]);

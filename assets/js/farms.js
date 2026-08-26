@@ -51,7 +51,7 @@ function setAllFarmUsers(selectAll) {
 
 async function loadFarms(force = false) {
   if (farmState.loaded && !force) return;
-  await refreshUserPermissions();
+  refreshUserPermissions();
   farmTableBody.innerHTML = '<tr class="empty-row"><td colspan="7"><strong>Consultando fincas…</strong></td></tr>';
   showFarmMessage('');
   try {

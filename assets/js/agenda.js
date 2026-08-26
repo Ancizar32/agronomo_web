@@ -215,7 +215,7 @@ async function changeAgendaStatus(id, estado) {
 
 async function loadAgenda(force = false) {
   if (agendaState.loaded && !force) return;
-  await refreshUserPermissions();
+  refreshUserPermissions();
   const messageBox = document.querySelector('#agenda-message');
   messageBox.textContent = '';
   messageBox.classList.remove('visible');

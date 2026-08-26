@@ -54,7 +54,7 @@ function recommendationDataTable(table, actionColumn) {
 
 async function loadRecommendations(force = false) {
   if (recommendationState.loaded && !force) return;
-  await refreshUserPermissions();
+  refreshUserPermissions();
   try {
     recommendationState.items = await recommendationApi('getRecomendacionesWeb');
     recommendationState.loaded = true;

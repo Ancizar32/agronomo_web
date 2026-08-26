@@ -35,7 +35,7 @@ function showAdminMessage(text, success = false) {
 
 async function loadAdministration(force = false) {
   if (adminState.loaded && !force) return;
-  await refreshUserPermissions();
+  refreshUserPermissions();
   showAdminMessage('');
   try {
     const detail = await adminApi('getAdministracionWeb');

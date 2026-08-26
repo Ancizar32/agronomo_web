@@ -118,7 +118,7 @@ function renderReportQueriesTable() {
 
 async function loadReportQueries(force = false) {
   if (buildQueryState.loaded && !force) return;
-  await refreshUserPermissions();
+  refreshUserPermissions();
   const messageBox = document.querySelector('#build-query-message');
   messageBox.textContent = '';
   messageBox.classList.remove('visible');

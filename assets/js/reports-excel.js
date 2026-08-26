@@ -109,7 +109,7 @@ function renderReportExcelTable() {
 
 async function loadReportsExcel(force = false) {
   if (reportExcelState.loaded && !force) return;
-  await refreshUserPermissions();
+  refreshUserPermissions();
   const messageBox = document.querySelector('#reports-excel-message');
   messageBox.textContent = '';
   messageBox.classList.remove('visible');

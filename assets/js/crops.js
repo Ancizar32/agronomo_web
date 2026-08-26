@@ -34,7 +34,7 @@ function createLaborTable(selector, key, placeholder, actionColumn = 5, emptyLab
 
 async function loadCrops(force = false) {
   if (cropState.loaded && !force) return;
-  await refreshUserPermissions();
+  refreshUserPermissions();
   showCropMessage('');
   try {
     const [crops, labores, categories] = await Promise.all([cropApi('getCultivosWeb'), cropApi('getLaboresWeb'), cropApi('getCategoriasLaborWeb')]);

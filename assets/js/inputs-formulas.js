@@ -5,7 +5,7 @@ function catalogEscape(value){const span=document.createElement('span');span.tex
 function catalogUser(){try{return JSON.parse(sessionStorage.getItem('agronomo_user'))||{};}catch(_){return {};}}
 function catalogCan(permission){const user=catalogUser();return user.rol_codigo==='admin'||(user.permissions||[]).includes(permission);}
 
-async function loadCatalogs(force=false){if(catalogState.loaded&&!force)return;await refreshUserPermissions();const detail=await catalogApi('getInsumosFormulasWeb');Object.assign(catalogState,detail,{loaded:true});renderInputs();renderFormulas();}
+async function loadCatalogs(force=false){if(catalogState.loaded&&!force)return;refreshUserPermissions();const detail=await catalogApi('getInsumosFormulasWeb');Object.assign(catalogState,detail,{loaded:true});renderInputs();renderFormulas();}
 function destroyCatalogTable(key){if(!catalogState[key])return;catalogState[key].destroy();catalogState[key]=null;}
 function catalogDataTable(table,key,actionColumn){if(!window.jQuery?.fn?.DataTable)return null;return window.jQuery(table).DataTable({pageLength:10,order:[],columnDefs:[{targets:actionColumn,orderable:false,searchable:false}],dom:'<"dt-top"lf>rt<"dt-bottom"ip>',language:{emptyTable:'No hay registros',zeroRecords:'No se encontraron resultados',info:'Mostrando _START_ a _END_ de _TOTAL_',infoEmpty:'0 registros',lengthMenu:'Mostrar _MENU_',search:'Buscar:',searchPlaceholder:'Filtrar catálogo…',paginate:{next:'Siguiente',previous:'Anterior'}}});}
 

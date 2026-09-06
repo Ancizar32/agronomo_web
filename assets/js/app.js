@@ -457,6 +457,7 @@ function applyUserPermissions(user) {
     visits: "visitas.ver",
     team: "tecnicos.ver",
     agenda: "agenda.ver",
+    harvests: "cosechas.ver",
     "reports-excel": "reportes_excel.ver",
     "build-query": "build_query.ver",
     notifications: "notificaciones.ver"
@@ -489,6 +490,8 @@ function applyUserPermissions(user) {
   );
   const newCertificationButton=document.querySelector('#new-certification-button');
   if(newCertificationButton)newCertificationButton.hidden=!userCan(user,'certificaciones.crear');
+  const newHarvestPlanButton=document.querySelector('#new-harvest-plan-button');
+  if(newHarvestPlanButton)newHarvestPlanButton.hidden=!userCan(user,'cosechas.crear');
   document.querySelector("#new-role-button").hidden = !userCan(
     user,
     "roles.crear"

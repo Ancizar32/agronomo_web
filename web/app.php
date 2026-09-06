@@ -121,11 +121,14 @@ $imgVersion = (string) max(array_map('filemtime', glob(dirname(__DIR__) . '/asse
     <link rel="stylesheet" href="assets/css/certifications.css?v=<?= $cssVersion ?>">
     <link rel="stylesheet" href="lib/select2/css/select2.min.css">
     <link rel="stylesheet" href="assets/css/visits.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
     <link rel="stylesheet" href="assets/css/team.css?v=<?= $cssVersion ?>">
     <link rel="stylesheet" href="assets/css/farms-scale.css?v=<?= $cssVersion ?>">
     <link rel="stylesheet" href="assets/css/summary.css?v=<?= $cssVersion ?>">
     <link rel="stylesheet" href="assets/css/profile.css?v=<?= $cssVersion ?>">
     <link rel="stylesheet" href="assets/css/agenda.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/harvests.css?v=<?= $cssVersion ?>">
+    <link rel="stylesheet" href="assets/css/harvest-dialog.css?v=<?= $cssVersion ?>">
     <link rel="stylesheet" href="assets/css/build-query.css?v=<?= $cssVersion ?>">
     <link rel="stylesheet" href="assets/css/notifications.css?v=<?= $cssVersion ?>">
     <link rel="stylesheet" href="assets/css/typography.css?v=<?= $cssVersion ?>">
@@ -143,11 +146,13 @@ $imgVersion = (string) max(array_map('filemtime', glob(dirname(__DIR__) . '/asse
     <script src="assets/js/inputs-formulas.js?v=<?= $jsVersion ?>" defer></script>
     <script src="assets/js/recommendations.js?v=<?= $jsVersion ?>" defer></script>
     <script src="assets/js/certifications.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
     <script src="assets/js/visits.js?v=<?= $jsVersion ?>" defer></script>
     <script src="assets/js/visit-report.js?v=<?= $jsVersion ?>" defer></script>
     <script src="assets/js/team.js?v=<?= $jsVersion ?>" defer></script>
     <script src="assets/js/profile.js?v=<?= $jsVersion ?>" defer></script>
     <script src="assets/js/agenda.js?v=<?= $jsVersion ?>" defer></script>
+    <script src="assets/js/harvests.js?v=<?= $jsVersion ?>" defer></script>
     <script src="assets/js/reports-excel.js?v=<?= $jsVersion ?>" defer></script>
     <script src="assets/js/build-query.js?v=<?= $jsVersion ?>" defer></script>
     <script src="assets/js/notifications.js?v=<?= $jsVersion ?>" defer></script>
@@ -359,6 +364,9 @@ $imgVersion = (string) max(array_map('filemtime', glob(dirname(__DIR__) . '/asse
                 <button class="nav-item" data-section="Visitas técnicas" data-view="visits" title="Visitas técnicas"><span><svg class="icon">
                             <use href="#icon-visits"></use>
                         </svg></span><span class="nav-text">Visitas técnicas</span></button>
+                <button class="nav-item" data-section="Proyección de cosecha" data-view="harvests" title="Proyección de cosecha"><span><svg class="icon">
+                            <use href="#icon-crops"></use>
+                        </svg></span><span class="nav-text">Proyección de cosecha</span></button>
                 <button class="nav-item" data-section="Equipo técnico" data-view="team" title="Equipo técnico"><span><svg class="icon">
                             <use href="#icon-team"></use>
                         </svg></span><span class="nav-text">Equipo técnico</span></button>
@@ -1121,8 +1129,60 @@ $imgVersion = (string) max(array_map('filemtime', glob(dirname(__DIR__) . '/asse
                     </div>
                 </section>
             </div>
+            <div id="harvests-view" class="dashboard-content app-view" hidden>
+                <section class="module-heading harvest-heading">
+                    <div><p class="eyebrow">Planeación productiva</p><h1>Proyección de cosecha</h1><p>Compara cada cosecha propuesta con la producción real y conoce el avance del plan.</p></div>
+                    <button id="new-harvest-plan-button" class="primary-button compact-action" type="button"><span>+ Nuevo plan</span></button>
+                </section>
+                <div id="harvest-message" class="module-message" role="status"></div>
+                <section class="harvest-metrics">
+                    <article><span>Planes activos</span><strong id="harvest-active-count">—</strong><small>En ejecución</small></article>
+                    <article><span>Producción proyectada</span><strong id="harvest-projected-total">—</strong><small>Kilogramos planeados</small></article>
+                    <article><span>Cosecha real</span><strong id="harvest-real-total">—</strong><small>Kilogramos registrados</small></article>
+                    <article class="harvest-execution-card"><span>Ejecución global</span><strong id="harvest-execution-total">—</strong><div><i id="harvest-execution-bar"></i></div></article>
+                </section>
+                <section class="harvest-workspace">
+                    <aside class="harvest-directory">
+                        <div class="harvest-filters"><input id="harvest-search" type="search" placeholder="Buscar plan, finca o lote…"><select id="harvest-farm-filter"><option value="">Todas las fincas</option></select><select id="harvest-status-filter"><option value="">Todos los estados</option><option value="BORRADOR">Borrador</option><option value="ACTIVO">Activo</option><option value="FINALIZADO">Finalizado</option><option value="CANCELADO">Cancelado</option></select></div>
+                        <div id="harvest-plan-list" class="harvest-plan-list"><p class="loading-state">Consultando planes…</p></div>
+                    </aside>
+                    <section id="harvest-plan-detail" class="harvest-detail"><div class="harvest-empty"><svg class="icon"><use href="#icon-crops"></use></svg><p class="eyebrow">Seguimiento productivo</p><h3>Selecciona un plan</h3><p>Aquí verás el avance de cada cosecha proyectada frente a sus registros reales.</p></div></section>
+                </section>
+            </div>
         </section>
     </main>
+    <dialog id="harvest-plan-dialog" class="entity-dialog harvest-dialog">
+        <form id="harvest-plan-form">
+            <header><div><p class="eyebrow">Planeación productiva</p><h2 id="harvest-plan-dialog-title">Nuevo plan de cosecha</h2></div><button class="dialog-close" type="button" data-harvest-close="harvest-plan-dialog"><svg class="icon"><use href="#icon-close"></use></svg></button></header>
+            <input id="harvest-plan-id" type="hidden">
+            <div class="harvest-form-grid">
+                <label class="field wide"><span>Nombre del plan *</span><input id="harvest-plan-name" maxlength="150" required placeholder="Ej. Producción segundo semestre"></label>
+                <label class="field"><span>Finca *</span><select id="harvest-plan-farm" required></select></label>
+                <label class="field"><span>Cultivo *</span><select id="harvest-plan-crop" required></select></label>
+                <label class="field wide"><span>Lote <small>(opcional)</small></span><select id="harvest-plan-lot"></select><small>Déjalo en “Todos los lotes” para proyectar el cultivo completo de la finca.</small></label>
+                <label class="field"><span>Fecha de inicio *</span><input id="harvest-plan-date" type="date" required></label>
+                <label class="field"><span>Plantas productivas *</span><input id="harvest-plan-plants" type="number" min="1" step="1" required></label>
+                <label class="field"><span>Estado</span><select id="harvest-plan-status"><option value="BORRADOR">Borrador</option><option value="ACTIVO">Activo</option><option value="FINALIZADO">Finalizado</option><option value="CANCELADO">Cancelado</option></select></label>
+                <label class="field"><span>Número de cosechas *</span><input id="harvest-plan-count" type="number" min="1" max="100" value="1" required></label>
+                <label class="field wide"><span>Observaciones</span><textarea id="harvest-plan-notes" rows="2" maxlength="1000"></textarea></label>
+            </div>
+            <section class="harvest-projections-editor"><header><div><p class="eyebrow">Distribución del plan</p><h3>Cosechas proyectadas</h3></div><small>El total se calcula con plantas × kg/planta.</small></header><div id="harvest-projection-rows"></div></section>
+            <p id="harvest-plan-dialog-message" class="dialog-message"></p>
+            <footer><button class="secondary-button" type="button" data-harvest-close="harvest-plan-dialog">Cancelar</button><button class="primary-button" type="submit"><span>Guardar plan</span></button></footer>
+        </form>
+    </dialog>
+    <dialog id="harvest-real-dialog" class="entity-dialog harvest-real-dialog">
+        <form id="harvest-real-form"><header><div><p class="eyebrow">Ejecución productiva</p><h2 id="harvest-real-title">Registrar cosecha real</h2></div><button class="dialog-close" type="button" data-harvest-close="harvest-real-dialog"><svg class="icon"><use href="#icon-close"></use></svg></button></header>
+            <input id="harvest-real-id" type="hidden"><input id="harvest-real-projection-id" type="hidden"><div class="harvest-form-grid"><label class="field"><span>Fecha *</span><input id="harvest-real-date" type="date" required></label><label class="field"><span>Kilogramos cosechados *</span><input id="harvest-real-kg" type="number" min="0.01" step="0.01" required></label><label class="field"><span>Plantas cosechadas</span><input id="harvest-real-plants" type="number" min="0" step="1"></label><label class="field wide"><span>Observaciones</span><textarea id="harvest-real-notes" rows="3" maxlength="500"></textarea></label></div><p id="harvest-real-message" class="dialog-message"></p><footer><button class="secondary-button" type="button" data-harvest-close="harvest-real-dialog">Cancelar</button><button class="primary-button" type="submit"><span id="harvest-real-submit-label">Registrar producción</span></button></footer>
+        </form>
+    </dialog>
+    <dialog id="harvest-records-dialog" class="entity-dialog harvest-records-dialog">
+        <div class="detail-dialog-shell">
+            <header><div><p class="eyebrow">Ejecución productiva</p><h2 id="harvest-records-title">Registros de cosecha real</h2></div><button class="dialog-close" type="button" data-harvest-close="harvest-records-dialog"><svg class="icon"><use href="#icon-close"></use></svg></button></header>
+            <div class="harvest-records-table-wrap"><table id="harvest-records-table" class="data-table"><thead><tr><th>Registrado</th><th>Fecha de cosecha</th><th>Kilogramos</th><th>Plantas</th><th>Registrado por</th><th>Observación</th><th>Estado</th><th>Acciones</th></tr></thead><tbody></tbody></table></div>
+            <footer><button class="secondary-button" type="button" data-harvest-close="harvest-records-dialog">Cerrar</button></footer>
+        </div>
+    </dialog>
     <dialog id="visit-filter-dialog" class="visit-filter-dialog">
         <form method="dialog">
             <header>

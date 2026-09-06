@@ -1,0 +1,6 @@
+!database/migrations/031_geolocalizacion_firma_visitas.sql
+!database/rollbacks/031_geolocalizacion_firma_visitas.sql
+!database/migrations/032_planes_cosecha.sql
+!database/rollbacks/032_planes_cosecha.sql
+!database/migrations/033_plan_cosecha_lote_opcional.sql
+!database/rollbacks/033_plan_cosecha_lote_opcional.sql

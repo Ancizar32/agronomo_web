@@ -25,8 +25,12 @@ final class AgronomoApiRouter
         'createHallazgo' => true, 'descargarHallazgos' => true,
         'createVisitaDetalleLote' => true, 'getVisitaDetalleLote' => true,
         'createVisita' => true, 'getVisitas' => true,
+        'saveVisitaFirma' => true, 'getVisitaFirmas' => true,
         'saveAgendaVisita' => true, 'getAgendaVisitas' => true,
         'getAgendaVisitasWeb' => true, 'saveAgendaVisitaWeb' => true, 'cambiarEstadoAgendaVisitaWeb' => true,
+        'getPlanesCosechaWeb' => true, 'getPlanCosechaDetalleWeb' => true,
+        'savePlanCosechaWeb' => true, 'saveCosechaRealWeb' => true, 'anularCosechaRealWeb' => true,
+        'getPlanesCosechaMobile' => true, 'saveCosechaRealMobile' => true,
         'getReportesExcelWeb' => true, 'saveReporteExcelWeb' => true, 'toggleReporteExcelWeb' => true,
         'getReportQueriesWeb' => true, 'saveReportQueryWeb' => true, 'toggleReportQueryWeb' => true, 'previewReportQueryWeb' => true,
         'getSchemaTablesWeb' => true, 'getSchemaColumnsWeb' => true,
@@ -84,7 +88,7 @@ final class AgronomoApiRouter
 
         require_once dirname(__DIR__) . '/controller/agronomo.controller.php';
         $instance = new AgronomoController();
-        $webMethods = ['getFincasWeb','getFincaDetalleWeb','saveFincaWeb','toggleFincaWeb','saveLoteWeb','toggleLoteWeb','savePredioCompletoWeb','getTiposCertificacionWeb','saveTipoCertificacionWeb','toggleTipoCertificacionWeb','getDivisionTerritorialWeb','getAdministracionWeb','saveUsuarioWeb','toggleUsuarioWeb','resetUsuarioPasswordWeb','saveRolWeb','deleteRolWeb','getCultivosWeb','saveCultivoWeb','toggleCultivoWeb','getLaboresWeb','saveLaborWeb','toggleLaborWeb','getCategoriasLaborWeb','saveCategoriaLaborWeb','toggleCategoriaLaborWeb','getInsumosFormulasWeb','saveInsumoWeb','toggleInsumoWeb','saveFormulaWeb','toggleFormulaWeb','getRecomendacionesWeb','saveRecomendacionWeb','toggleRecomendacionWeb','getVisitasWeb','getVisitaDetalleWeb','getFirmaTecnicoWeb','getEquipoTecnicoWeb','getResumenWeb','getConfiguracionUsuarioWeb','saveConfiguracionUsuarioWeb','getAgendaVisitasWeb','saveAgendaVisitaWeb','cambiarEstadoAgendaVisitaWeb','getReportesExcelWeb','saveReporteExcelWeb','toggleReporteExcelWeb','getReportQueriesWeb','saveReportQueryWeb','toggleReportQueryWeb','previewReportQueryWeb','getSchemaTablesWeb','getSchemaColumnsWeb','getApiClientesWeb','saveApiClienteWeb','toggleApiClienteWeb','getApiClienteReportesWeb','saveApiClienteReportesWeb','getNotificacionesWeb','sendNotificacionWeb','retryNotificacionPushWeb'];
+        $webMethods = ['getFincasWeb','getFincaDetalleWeb','saveFincaWeb','toggleFincaWeb','saveLoteWeb','toggleLoteWeb','savePredioCompletoWeb','getTiposCertificacionWeb','saveTipoCertificacionWeb','toggleTipoCertificacionWeb','getDivisionTerritorialWeb','getAdministracionWeb','saveUsuarioWeb','toggleUsuarioWeb','resetUsuarioPasswordWeb','saveRolWeb','deleteRolWeb','getCultivosWeb','saveCultivoWeb','toggleCultivoWeb','getLaboresWeb','saveLaborWeb','toggleLaborWeb','getCategoriasLaborWeb','saveCategoriaLaborWeb','toggleCategoriaLaborWeb','getInsumosFormulasWeb','saveInsumoWeb','toggleInsumoWeb','saveFormulaWeb','toggleFormulaWeb','getRecomendacionesWeb','saveRecomendacionWeb','toggleRecomendacionWeb','getVisitasWeb','getVisitaDetalleWeb','getFirmaTecnicoWeb','getEquipoTecnicoWeb','getResumenWeb','getConfiguracionUsuarioWeb','saveConfiguracionUsuarioWeb','getAgendaVisitasWeb','saveAgendaVisitaWeb','cambiarEstadoAgendaVisitaWeb','getPlanesCosechaWeb','getPlanCosechaDetalleWeb','savePlanCosechaWeb','saveCosechaRealWeb','anularCosechaRealWeb','getReportesExcelWeb','saveReporteExcelWeb','toggleReporteExcelWeb','getReportQueriesWeb','saveReportQueryWeb','toggleReportQueryWeb','previewReportQueryWeb','getSchemaTablesWeb','getSchemaColumnsWeb','getApiClientesWeb','saveApiClienteWeb','toggleApiClienteWeb','getApiClienteReportesWeb','saveApiClienteReportesWeb','getNotificacionesWeb','sendNotificacionWeb','retryNotificacionPushWeb'];
         // Un 401 (sesión inexistente) es un caso distinto de un 403 (sesión
         // válida pero sin el permiso). Antes ambos devolvían el mismo 403
         // "No tienes permiso para realizar esta acción" — dejaba al usuario
@@ -138,6 +142,11 @@ final class AgronomoApiRouter
             'getAgendaVisitasWeb' => ['agenda', 'ver'],
             'saveAgendaVisitaWeb' => ['agenda', empty($data['id']) ? 'crear' : 'editar'],
             'cambiarEstadoAgendaVisitaWeb' => ['agenda', 'editar'],
+            'getPlanesCosechaWeb' => ['cosechas', 'ver'],
+            'getPlanCosechaDetalleWeb' => ['cosechas', 'ver'],
+            'savePlanCosechaWeb' => ['cosechas', empty($data['id']) ? 'crear' : 'editar'],
+            'saveCosechaRealWeb' => ['cosechas', 'editar'],
+            'anularCosechaRealWeb' => ['cosechas', 'editar'],
             'getReportesExcelWeb' => ['reportes_excel', 'ver'],
             'saveReporteExcelWeb' => ['reportes_excel', empty($data['id']) ? 'crear' : 'editar'],
             'toggleReporteExcelWeb' => ['reportes_excel', 'editar'],
@@ -159,11 +168,12 @@ final class AgronomoApiRouter
         $mobileMutationMethods = [
             'createConfiguracion','createVisitaDetalleRecomendacion',
             'createVisitaDetalleFormula','createActividad','createHallazgo',
-            'createVisitaDetalleLote','createVisita','saveAgendaVisita',
+            'createVisitaDetalleLote','createVisita','saveVisitaFirma','saveAgendaVisita',
             'createRecomendacion','createLabor','createDetalleFormula',
             'createFormula','createLote','createFinca','createCategoriaLabor',
             'createCultivo','createInsumo','asignarFincaTecnico',
             'saveAsignacionesFincasMobile',
+            'saveCosechaRealMobile',
         ];
         if ($method === 'getAsignacionesFincasMobile') {
             $token = $this->bearerToken($data);
@@ -176,7 +186,7 @@ final class AgronomoApiRouter
                 $this->respond(false, 'No tienes permiso para consultar asignaciones de fincas.', ['permission_denied'=>true], 403);
             }
         }
-        if (in_array($method, ['getMobileUpdateStatus','getMobileNotifications','markMobileNotificationsRead','registerMobilePushToken','confirmMobileNotification','completeMobileDataUpdate'], true)) {
+        if (in_array($method, ['getMobileUpdateStatus','getMobileNotifications','markMobileNotificationsRead','registerMobilePushToken','confirmMobileNotification','completeMobileDataUpdate','descargarConfiguracion','getPlanesCosechaMobile'], true)) {
             $token = $this->bearerToken($data);
             $mobileUserId = $instance->authenticateMobileToken($token);
             if ($mobileUserId === null) {

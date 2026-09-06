@@ -1,0 +1,455 @@
+dialog.entity-dialog.harvest-dialog {
+    width: min(900px, calc(100vw - 28px));
+    max-height: calc(100dvh - 24px);
+    overflow: hidden;
+}
+
+dialog.entity-dialog.harvest-dialog form {
+    width: 100%;
+    max-height: calc(100dvh - 24px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+dialog.entity-dialog.harvest-dialog form > header {
+    position: sticky;
+    top: -28px;
+    z-index: 8;
+    padding-top: 28px;
+    background: var(--cream);
+}
+
+dialog.entity-dialog.harvest-dialog form > footer {
+    position: sticky;
+    bottom: -28px;
+    z-index: 8;
+    margin: 0 -28px -28px;
+    padding: 16px 28px 28px;
+    border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--cream) 96%, transparent);
+    box-shadow: 0 -12px 24px rgba(23, 63, 50, .08);
+    backdrop-filter: blur(8px);
+}
+
+dialog.entity-dialog.harvest-dialog .harvest-projections-editor {
+    min-width: 0;
+}
+
+#harvests-view .harvest-filters .select2-container {
+    width: 100% !important;
+}
+
+#harvests-view .harvest-filters .select2-selection--single {
+    height: 42px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: #fff;
+}
+
+#harvests-view .harvest-filters .select2-selection__rendered {
+    height: 40px;
+    padding: 0 38px 0 13px;
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 40px;
+}
+
+#harvests-view .harvest-filters .select2-selection__arrow {
+    height: 40px;
+    right: 8px;
+}
+
+#harvests-view .harvest-filters .select2-selection__clear {
+    margin-right: 8px;
+    color: var(--muted);
+}
+
+.harvest-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 24px;
+    padding: 4px 7px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.harvest-status i {
+    display: block;
+    width: 6px;
+    height: 6px;
+    flex: 0 0 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+dialog.entity-dialog.harvest-records-dialog {
+    width: min(1280px, calc(100vw - 20px));
+    max-height: calc(100dvh - 28px);
+    overflow: hidden;
+}
+
+.harvest-records-dialog .detail-dialog-shell {
+    max-height: calc(100dvh - 28px);
+    overflow-y: auto;
+}
+
+.harvest-records-table-wrap {
+    min-width: 0;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fff;
+}
+
+.harvest-records-table-wrap .dataTables_wrapper {
+    min-width: 0;
+}
+
+.harvest-records-table-wrap .dt-top,
+.harvest-records-table-wrap .dt-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    background: #f6f5ed;
+}
+
+.harvest-records-table-wrap .dt-top {
+    border-bottom: 1px solid var(--line);
+}
+
+.harvest-records-table-wrap .dt-bottom {
+    border-top: 1px solid var(--line);
+}
+
+.harvest-records-table-wrap .dataTables_filter label,
+.harvest-records-table-wrap .dataTables_length label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.harvest-records-table-wrap .dataTables_filter input,
+.harvest-records-table-wrap .dataTables_length select {
+    margin: 0 !important;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.harvest-records-table-wrap table {
+    width: 100% !important;
+    min-width: 820px;
+}
+
+.harvest-records-table-wrap th:nth-child(-n+5),
+.harvest-records-table-wrap td:nth-child(-n+5),
+.harvest-records-table-wrap th:last-child,
+.harvest-records-table-wrap td:last-child {
+    white-space: nowrap;
+}
+
+.harvest-records-table-wrap td:nth-child(6) {
+    min-width: 120px;
+    max-width: 240px;
+    white-space: normal;
+}
+
+.harvest-records-table-wrap th,
+.harvest-records-table-wrap td {
+    padding-left: 9px;
+    padding-right: 9px;
+}
+
+.harvest-record-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.harvest-record-actions button {
+    padding: 7px 9px;
+    border: 1px solid #cfd7cc;
+    border-radius: 7px;
+    background: #fff;
+    color: var(--forest);
+    font: 700 11px/1 var(--sans);
+    cursor: pointer;
+}
+
+.harvest-record-actions button:hover {
+    background: #edf2e8;
+}
+
+.harvest-record-actions button.danger {
+    border-color: #e1bdb5;
+    color: #934d3c;
+}
+
+.harvest-record-actions button.danger:hover {
+    background: #f7e7e2;
+}
+
+.harvest-record-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 7px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.harvest-record-state i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.harvest-record-state.active {
+    border-color: #bfdbc7;
+    background: #e5f2e8;
+    color: #356446;
+}
+
+.harvest-record-state.voided {
+    border-color: #e7c5bd;
+    background: #f6e4df;
+    color: #934d3c;
+}
+
+.harvest-record-voided td {
+    background: #faf4f1 !important;
+    color: #847671;
+}
+
+.harvest-record-voided td:not(:nth-child(7)) strong {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+}
+
+.harvest-record-no-actions {
+    color: var(--muted);
+    font-size: 10px;
+    font-style: italic;
+}
+
+.harvest-records-table-wrap .dataTables_paginate,
+.harvest-records-table-wrap .dataTables_paginate ul.pagination {
+    display: flex !important;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    margin: 0 !important;
+    padding: 0 !important;
+    list-style: none !important;
+}
+
+.harvest-records-table-wrap .dataTables_paginate li,
+.harvest-records-table-wrap .dataTables_paginate .page-item {
+    display: block;
+    margin: 0 !important;
+    padding: 0 !important;
+    list-style: none !important;
+}
+
+.harvest-records-table-wrap .dataTables_paginate a,
+.harvest-records-table-wrap .dataTables_paginate .paginate_button,
+.harvest-records-table-wrap .dataTables_paginate .page-link {
+    display: grid !important;
+    place-items: center;
+    min-width: 34px;
+    height: 34px;
+    margin: 0 !important;
+    padding: 0 10px !important;
+    border: 1px solid #d5d9cf !important;
+    border-radius: 8px !important;
+    background: #fff !important;
+    color: var(--forest) !important;
+    text-decoration: none !important;
+    box-shadow: none !important;
+    cursor: pointer;
+}
+
+.harvest-records-table-wrap .dataTables_paginate a:hover,
+.harvest-records-table-wrap .dataTables_paginate .paginate_button:hover,
+.harvest-records-table-wrap .dataTables_paginate .page-link:hover {
+    border-color: var(--forest) !important;
+    background: #edf2e8 !important;
+}
+
+.harvest-records-table-wrap .dataTables_paginate .active a,
+.harvest-records-table-wrap .dataTables_paginate .page-item.active .page-link,
+.harvest-records-table-wrap .dataTables_paginate .paginate_button.current {
+    border-color: var(--forest) !important;
+    background: var(--forest) !important;
+    color: #fff !important;
+}
+
+.harvest-records-table-wrap .dataTables_paginate .disabled,
+.harvest-records-table-wrap .dataTables_paginate .paginate_button.disabled {
+    opacity: .38;
+    pointer-events: none;
+}
+
+@media (max-width: 650px) {
+    .harvest-records-table-wrap .dt-bottom {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
+.harvest-status.pendiente,
+.harvest-status.borrador {
+    border-color: #ddd5c5;
+    background: #f4f0e7;
+    color: #78664a;
+}
+
+.harvest-status.en-curso,
+.harvest-status.activo {
+    border-color: #d5df9c;
+    background: #f1f6d4;
+    color: #657526;
+}
+
+.harvest-status.cumplida,
+.harvest-status.finalizado {
+    border-color: #bfdbc7;
+    background: #e5f2e8;
+    color: #356446;
+}
+
+.harvest-status.cancelado {
+    border-color: #e7c5bd;
+    background: #f6e4df;
+    color: #934d3c;
+}
+
+.harvest-record-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 4px;
+    padding: 3px 0;
+    border: 0;
+    background: transparent;
+    color: var(--forest);
+    font: 700 11px/1.2 var(--sans);
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    cursor: pointer;
+}
+
+.harvest-record-toggle::after {
+    content: '›';
+    font-size: 17px;
+    line-height: 1;
+    transition: transform .2s ease;
+}
+
+.harvest-record-toggle[aria-expanded="true"]::after {
+    transform: rotate(90deg);
+}
+
+.harvest-record-toggle:hover {
+    color: var(--clay);
+}
+
+.harvest-real-records {
+    display: grid;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 13px;
+    border-top: 1px dashed var(--line);
+}
+
+.harvest-real-records[hidden] {
+    display: none;
+}
+
+.harvest-real-record {
+    display: grid;
+    grid-template-columns: 105px 1fr 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 11px 12px;
+    border: 1px solid #e1e4d9;
+    border-radius: 12px;
+    background: #f8f7f0;
+}
+
+.harvest-real-record time {
+    color: var(--forest);
+    font-weight: 700;
+}
+
+.harvest-real-record span,
+.harvest-real-record small {
+    color: var(--muted);
+}
+
+.harvest-real-record strong {
+    color: var(--ink);
+}
+
+.harvest-real-record p {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.harvest-real-records-empty {
+    margin: 0;
+    padding: 12px;
+    border-radius: 10px;
+    background: #f5f3eb;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+@media (max-width: 650px) {
+    .harvest-real-record {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .harvest-real-record time {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 650px) {
+    dialog.entity-dialog.harvest-dialog {
+        width: calc(100vw - 12px);
+        max-height: calc(100dvh - 12px);
+    }
+
+    dialog.entity-dialog.harvest-dialog form {
+        max-height: calc(100dvh - 12px);
+        padding: 22px 16px;
+    }
+
+    dialog.entity-dialog.harvest-dialog form > header {
+        top: -22px;
+        padding-top: 22px;
+    }
+
+    dialog.entity-dialog.harvest-dialog form > footer {
+        bottom: -22px;
+        margin: 0 -16px -22px;
+        padding: 14px 16px 22px;
+    }
+}

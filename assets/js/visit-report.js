@@ -207,7 +207,7 @@ class VisitReportBuilder {
 async function buildVisitReportPdf() {
   const {jsPDF} = window.jspdf;
   const detail = visitState.detail;
-  const {visita, lotes = [], hallazgos = [], actividades = [], formulas = [], recomendaciones = []} = detail;
+  const {visita, lotes = [], hallazgos = [], actividades = [], formulas = [], recomendaciones = [], firma_asistencia: firmaAsistencia} = detail;
   const activeFormulas = formulas.filter((f) => f.es_header !== '1');
 
   const doc = new jsPDF({unit: 'pt', format: 'a4'});
@@ -402,6 +402,19 @@ async function buildVisitReportPdf() {
     report.paragraph('Este técnico aún no ha configurado su firma y datos de perfil.', {
       size: 9, color: REPORT_COLORS.muted, italic: true,
     });
+  }
+
+  if (firmaAsistencia?.firma_base64) {
+    report.ensureSpace(170);
+    report.y += 26;
+    report.paragraph('Constancia de asistencia', {size: 12, bold: true, gapAfter: 8});
+    await report.image(`data:image/png;base64,${firmaAsistencia.firma_base64}`, {maxHeight: 70, center: false});
+    doc.setDrawColor(REPORT_COLORS.ink);
+    doc.line(REPORT_MARGIN, report.y, REPORT_MARGIN + 190, report.y);
+    report.y += 12;
+    report.paragraph(firmaAsistencia.nombre || '', {size: 11, bold: true, gapAfter: 2});
+    report.paragraph(`${firmaAsistencia.rol || 'Asistente'} · Documento ${firmaAsistencia.documento || '—'}`, {size: 9.5, color: REPORT_COLORS.muted, gapAfter: 2});
+    report.paragraph(`Firmado: ${firmaAsistencia.signed_at || '—'}`, {size: 9, color: REPORT_COLORS.muted});
   }
 
   // ===================== Marca de página + pie =====================

@@ -440,7 +440,7 @@ class AgronomoController extends ControllerBase
 
         $visitMethods = [
             'createVisitaDetalleRecomendacion','createVisitaDetalleFormula',
-            'createActividad','createHallazgo','createVisitaDetalleLote',
+            'createActividad','createHallazgo','createVisitaDetalleLote','saveVisitaFirma',
         ];
         if (in_array($method, $visitMethods, true)) {
             return $this->mobileUserCan($usuarioId, 'visitas', 'editar');
@@ -460,6 +460,9 @@ class AgronomoController extends ControllerBase
                 [':id'=>$id]
             ));
             return $this->mobileUserCan($usuarioId, 'agenda', $exists ? 'editar' : 'crear');
+        }
+        if ($method === 'saveCosechaRealMobile') {
+            return $this->mobileUserCan($usuarioId, 'cosechas', 'editar');
         }
         return false;
     }
@@ -880,13 +883,19 @@ class AgronomoController extends ControllerBase
         service_return(['data' => $data['id'], 'message' => $msg]);
     }
 
-    public function descargarConfiguracion()
+    public function descargarConfiguracion($data = [])
     {
-
-        $a = $this->model;
-        $where['voided'] = '1';
-        $sql_ = crearSentenciaSelect(['tabla' => 'configuracion_usuario', 'where' => $where]);
-        $data_load = $a->executeScript(['sql' => $sql_]);
+        $usuarioId = trim((string)($data['authenticated_user_id'] ?? ''));
+        if ($usuarioId === '') {
+            service_return(['success'=>false,'message'=>'Debes iniciar sesión nuevamente.','data'=>[]]);
+        }
+        $data_load = $this->model->queryPrepared(
+            "SELECT id,nombre,titulo,tarjeta_profesional,celular,firma_base64,
+                    sync,voided,created_at,updated_at,created_by
+             FROM configuracion_usuario
+             WHERE usuario_id=:usuario AND voided='1' LIMIT 1",
+            [':usuario'=>$usuarioId]
+        );
 
         service_return(['data' => $data_load, 'message' => 'El listado de configuraciones se envia con éxito!']);
     }
@@ -1160,6 +1169,10 @@ class AgronomoController extends ControllerBase
             $data_query['visita_detalle_id'] = $data['visita_detalle_id'];
             $data_query['descripcion'] = $data['descripcion'];
             $data_query['imagen_path'] = $data['imagen_path'];
+            $data_query['latitude'] = $data['latitude'] ?? null;
+            $data_query['longitude'] = $data['longitude'] ?? null;
+            $data_query['location_accuracy'] = $data['location_accuracy'] ?? null;
+            $data_query['location_captured_at'] = $data['location_captured_at'] ?? null;
 
             $data_query['sync'] = '1';
             $data_query['voided'] = $data['voided'];
@@ -1239,6 +1252,10 @@ class AgronomoController extends ControllerBase
             $data_query['lote_id'] = $data['lote_id'];
             $data_query['cultivo_id'] = $data['cultivo_id'];
             $data_query['observacion'] = $data['observacion'];
+            $data_query['latitude'] = $data['latitude'] ?? null;
+            $data_query['longitude'] = $data['longitude'] ?? null;
+            $data_query['location_accuracy'] = $data['location_accuracy'] ?? null;
+            $data_query['location_captured_at'] = $data['location_captured_at'] ?? null;
             $data_query['sync'] = '1';
             $data_query['voided'] = $data['voided'];
             $data_query['created_at'] = $data['created_at'];
@@ -1304,6 +1321,10 @@ class AgronomoController extends ControllerBase
             $data_query['fecha'] = $data['fecha'];
             $data_query['descripcion'] = $data['descripcion'];
             $data_query['observacion'] = $data['observacion'];
+            $data_query['latitude'] = $data['latitude'] ?? null;
+            $data_query['longitude'] = $data['longitude'] ?? null;
+            $data_query['location_accuracy'] = $data['location_accuracy'] ?? null;
+            $data_query['location_captured_at'] = $data['location_captured_at'] ?? null;
             $data_query['sync'] = '1';
             $data_query['voided'] = $data['voided'];
             $data_query['created_at'] = $data['created_at'];
@@ -1346,6 +1367,76 @@ class AgronomoController extends ControllerBase
         }
 
         service_return(['data' => $data_load, 'message' => 'El listado de visitas tecnicas se envia con éxito!']);
+    }
+
+    public function saveVisitaFirma($data)
+    {
+        foreach (['id','visita_id','nombre','documento','rol','firma_base64','signed_at','created_at','updated_at','created_by'] as $field) {
+            if (!isset($data[$field]) || trim((string)$data[$field]) === '') {
+                service_return(['success'=>false,'message'=>'Falta el campo '.$field,'data'=>[]]);
+            }
+        }
+        $firmaBinaria = base64_decode((string)$data['firma_base64'], true);
+        if ($firmaBinaria === false || strlen($firmaBinaria) > 2 * 1024 * 1024 || substr($firmaBinaria, 0, 8) !== "\x89PNG\r\n\x1a\n") {
+            service_return(['success'=>false,'message'=>'La firma no es una imagen PNG válida.','data'=>[]]);
+        }
+        $latitud = isset($data['latitude']) && $data['latitude'] !== '' ? filter_var($data['latitude'], FILTER_VALIDATE_FLOAT) : null;
+        $longitud = isset($data['longitude']) && $data['longitude'] !== '' ? filter_var($data['longitude'], FILTER_VALIDATE_FLOAT) : null;
+        if (($latitud !== null && ($latitud === false || $latitud < -90 || $latitud > 90)) ||
+            ($longitud !== null && ($longitud === false || $longitud < -180 || $longitud > 180))) {
+            service_return(['success'=>false,'message'=>'Las coordenadas de la firma no son válidas.','data'=>[]]);
+        }
+        $visita = $this->model->queryPrepared(
+            "SELECT id FROM visitas_tecnicas
+             WHERE id=:id AND voided='1' LIMIT 1",
+            [':id'=>$data['visita_id']]
+        );
+        if (empty($visita)) {
+            service_return(['success'=>false,'message'=>'La visita no existe o fue eliminada.','data'=>[]]);
+        }
+        $this->model->executePrepared(
+            "INSERT INTO visita_firmas
+             (id,visita_id,nombre,documento,rol,firma_base64,signed_at,latitude,longitude,location_accuracy,location_captured_at,sync,voided,created_at,updated_at,created_by)
+             VALUES (:id,:visita,:nombre,:documento,:rol,:firma,:signed,:lat,:lng,:accuracy,:captured,'1',:voided,:created,:updated,:actor)
+             ON DUPLICATE KEY UPDATE id=VALUES(id),nombre=VALUES(nombre),documento=VALUES(documento),rol=VALUES(rol),
+             firma_base64=VALUES(firma_base64),signed_at=VALUES(signed_at),latitude=VALUES(latitude),
+             longitude=VALUES(longitude),location_accuracy=VALUES(location_accuracy),
+             location_captured_at=VALUES(location_captured_at),sync='1',voided=VALUES(voided),
+             updated_at=VALUES(updated_at),created_by=VALUES(created_by)",
+            [
+                ':id'=>$data['id'], ':visita'=>$data['visita_id'], ':nombre'=>$data['nombre'],
+                ':documento'=>$data['documento'], ':rol'=>$data['rol'], ':firma'=>$data['firma_base64'],
+                ':signed'=>$data['signed_at'], ':lat'=>$latitud,
+                ':lng'=>$longitud, ':accuracy'=>$data['location_accuracy'] ?? null,
+                ':captured'=>$data['location_captured_at'] ?? null, ':voided'=>$data['voided'] ?? '1',
+                ':created'=>$data['created_at'], ':updated'=>$data['updated_at'], ':actor'=>$data['created_by'],
+            ]
+        );
+        $this->model->executePrepared(
+            "UPDATE visitas_tecnicas SET finalizada_at=:signed WHERE id=:visita",
+            [':signed'=>$data['signed_at'], ':visita'=>$data['visita_id']]
+        );
+        service_return(['data'=>$data['id'],'message'=>'Firma de asistencia guardada con éxito.']);
+    }
+
+    public function getVisitaFirmas($data = [])
+    {
+        $usuarioId = trim((string)($data['usuario_id'] ?? ''));
+        $fechaDesde = $this->fechaDesdeMobile($data);
+        if ($this->mobileUserIsAdmin($usuarioId)) {
+            $rows = $this->model->queryPrepared(
+                "SELECT vf.* FROM visita_firmas vf JOIN visitas_tecnicas vt ON vt.id=vf.visita_id WHERE vt.fecha>=:fecha",
+                [':fecha'=>$fechaDesde]
+            );
+        } else {
+            $rows = $this->model->queryPrepared(
+                "SELECT DISTINCT vf.* FROM visita_firmas vf JOIN visitas_tecnicas vt ON vt.id=vf.visita_id
+                 JOIN usuario_fincas uf ON uf.finca_id=vt.finca_id
+                 WHERE uf.usuario_id=:usuario AND vt.fecha>=:fecha",
+                [':usuario'=>$usuarioId, ':fecha'=>$fechaDesde]
+            );
+        }
+        service_return(['data'=>$rows,'message'=>'Firmas de asistencia consultadas con éxito.']);
     }
 
     public function saveAgendaVisita($data)
@@ -1563,6 +1654,374 @@ class AgronomoController extends ControllerBase
     }
 
     // =====================================================================
+    // PROYECCIÓN DE COSECHAS (WEB)
+    // =====================================================================
+
+    public function getPlanesCosechaWeb($data)
+    {
+        $fincaIds = $this->assignedFincaIds();
+        $scope = $this->fincaScopeClause('p.finca_id', $fincaIds);
+        $where = "WHERE p.voided='1'" . ($scope['sql'] !== '' ? " AND {$scope['sql']}" : '');
+        $planes = $this->model->queryPrepared(
+            "SELECT p.id,p.finca_id,p.lote_id,p.cultivo_id,p.nombre,p.fecha_inicio,
+                    p.plantas_productivas,p.estado,p.observacion,p.updated_at,
+                    f.descripcion AS finca_nombre,l.nombre AS lote_nombre,c.descripcion AS cultivo_nombre,
+                    COUNT(cp.id) AS total_cosechas,
+                    COALESCE(SUM(cp.kg_proyectado),0) AS kg_proyectado,
+                    COALESCE(SUM(cr.kg_real),0) AS kg_real
+             FROM planes_cosecha p
+             JOIN fincas f ON f.id=p.finca_id
+             LEFT JOIN lotes l ON l.id=p.lote_id
+             JOIN cultivos c ON c.id=p.cultivo_id
+             LEFT JOIN cosechas_proyectadas cp ON cp.plan_id=p.id AND cp.voided='1'
+             LEFT JOIN (
+                 SELECT cosecha_proyectada_id,SUM(kg_real) AS kg_real
+                 FROM cosechas_reales WHERE voided='1' GROUP BY cosecha_proyectada_id
+             ) cr ON cr.cosecha_proyectada_id=cp.id
+             $where
+             GROUP BY p.id,p.finca_id,p.lote_id,p.cultivo_id,p.nombre,p.fecha_inicio,
+                      p.plantas_productivas,p.estado,p.observacion,p.updated_at,
+                      f.descripcion,l.nombre,c.descripcion
+             ORDER BY FIELD(p.estado,'ACTIVO','BORRADOR','FINALIZADO','CANCELADO'),p.fecha_inicio DESC,p.nombre",
+            $scope['params']
+        );
+        foreach ($planes as &$plan) {
+            $projected = (float)$plan['kg_proyectado'];
+            $plan['porcentaje_ejecucion'] = $projected > 0
+                ? round(((float)$plan['kg_real'] / $projected) * 100, 1) : 0;
+        }
+        unset($plan);
+
+        $farmScope = $this->fincaScopeClause('f.id', $fincaIds);
+        $farmWhere = "WHERE f.voided='1'" . ($farmScope['sql'] !== '' ? " AND {$farmScope['sql']}" : '');
+        $fincas = $this->model->queryPrepared(
+            "SELECT f.id,f.descripcion AS nombre FROM fincas f $farmWhere ORDER BY f.descripcion",
+            $farmScope['params']
+        );
+        $lotScope = $this->fincaScopeClause('l.finca_id', $fincaIds);
+        $lotWhere = "WHERE l.voided='1'" . ($lotScope['sql'] !== '' ? " AND {$lotScope['sql']}" : '');
+        $lotes = $this->model->queryPrepared(
+            "SELECT l.id,l.finca_id,l.nombre,l.cultivo_id,c.descripcion AS cultivo_nombre
+             FROM lotes l JOIN cultivos c ON c.id=l.cultivo_id $lotWhere ORDER BY l.nombre",
+            $lotScope['params']
+        );
+        service_return(['data'=>['planes'=>$planes,'fincas'=>$fincas,'lotes'=>$lotes],
+            'message'=>'Planes de cosecha consultados con éxito.']);
+    }
+
+    public function getPlanCosechaDetalleWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        $rows = $this->model->queryPrepared(
+            "SELECT p.*,f.descripcion AS finca_nombre,l.nombre AS lote_nombre,c.descripcion AS cultivo_nombre
+             FROM planes_cosecha p JOIN fincas f ON f.id=p.finca_id
+             LEFT JOIN lotes l ON l.id=p.lote_id JOIN cultivos c ON c.id=p.cultivo_id
+             WHERE p.id=:id AND p.voided='1' LIMIT 1", [':id'=>$id]
+        );
+        if (!$rows) service_return(['success'=>false,'message'=>'El plan de cosecha no existe.','data'=>[]]);
+        $this->assertFincaAccesible((string)$rows[0]['finca_id']);
+        $proyecciones = $this->model->queryPrepared(
+            "SELECT cp.*,COALESCE(SUM(cr.kg_real),0) AS kg_real,
+                    COUNT(cr.id) AS total_registros_reales
+             FROM cosechas_proyectadas cp
+             LEFT JOIN cosechas_reales cr ON cr.cosecha_proyectada_id=cp.id AND cr.voided='1'
+             WHERE cp.plan_id=:plan AND cp.voided='1'
+             GROUP BY cp.id ORDER BY cp.numero", [':plan'=>$id]
+        );
+        foreach ($proyecciones as &$item) {
+            $projected = (float)$item['kg_proyectado'];
+            $item['porcentaje_ejecucion'] = $projected > 0
+                ? round(((float)$item['kg_real'] / $projected) * 100, 1) : 0;
+        }
+        unset($item);
+        $reales = $this->model->queryPrepared(
+            "SELECT cr.*,cp.numero,COALESCE(u.name,u.`user`,'Usuario no disponible') AS usuario_nombre
+             FROM cosechas_reales cr
+             JOIN cosechas_proyectadas cp ON cp.id=cr.cosecha_proyectada_id
+             LEFT JOIN `user` u ON u.id=cr.created_by
+             WHERE cp.plan_id=:plan ORDER BY cr.voided DESC,cr.fecha DESC,cr.created_at DESC",
+            [':plan'=>$id]
+        );
+        service_return(['data'=>['plan'=>$rows[0],'proyecciones'=>$proyecciones,'reales'=>$reales],
+            'message'=>'Detalle del plan consultado con éxito.']);
+    }
+
+    public function savePlanCosechaWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        $fincaId = trim((string)($data['finca_id'] ?? ''));
+        $loteId = trim((string)($data['lote_id'] ?? ''));
+        $cultivoId = trim((string)($data['cultivo_id'] ?? ''));
+        $nombre = trim((string)($data['nombre'] ?? ''));
+        $fechaInicio = trim((string)($data['fecha_inicio'] ?? ''));
+        $plantas = (int)($data['plantas_productivas'] ?? 0);
+        $estado = strtoupper(trim((string)($data['estado'] ?? 'BORRADOR')));
+        $proyecciones = is_array($data['proyecciones'] ?? null) ? $data['proyecciones'] : [];
+        if ($fincaId==='' || $cultivoId==='' || $nombre==='' || $fechaInicio==='' || $plantas<=0 || !$proyecciones) {
+            service_return(['success'=>false,'message'=>'Completa finca, cultivo, nombre, fecha, plantas productivas y al menos una cosecha.','data'=>[]]);
+        }
+        if (!in_array($estado,['BORRADOR','ACTIVO','FINALIZADO','CANCELADO'],true)) {
+            service_return(['success'=>false,'message'=>'El estado del plan no es válido.','data'=>[]]);
+        }
+        $this->assertFincaAccesible($fincaId);
+        $cultivosFinca = $this->model->queryPrepared(
+            "SELECT DISTINCT cultivo_id FROM lotes
+             WHERE finca_id=:finca AND cultivo_id=:cultivo AND voided='1' LIMIT 1",
+            [':finca'=>$fincaId,':cultivo'=>$cultivoId]
+        );
+        if (!$cultivosFinca) service_return(['success'=>false,'message'=>'El cultivo seleccionado no está asociado a ningún lote activo de la finca.','data'=>[]]);
+        if ($loteId !== '') {
+            $lotes = $this->model->queryPrepared(
+                "SELECT id FROM lotes WHERE id=:id AND finca_id=:finca AND cultivo_id=:cultivo AND voided='1' LIMIT 1",
+                [':id'=>$loteId,':finca'=>$fincaId,':cultivo'=>$cultivoId]
+            );
+            if (!$lotes) service_return(['success'=>false,'message'=>'El lote seleccionado no pertenece a la finca y cultivo indicados, o está inactivo.','data'=>[]]);
+        }
+        if ($id !== '') {
+            $existingPlan = $this->model->queryPrepared("SELECT finca_id FROM planes_cosecha WHERE id=:id AND voided='1' LIMIT 1",[':id'=>$id]);
+            if (!$existingPlan) service_return(['success'=>false,'message'=>'El plan que intentas editar ya no existe.','data'=>[]]);
+            $this->assertFincaAccesible((string)$existingPlan[0]['finca_id']);
+        }
+        $normalized = [];
+        foreach (array_values($proyecciones) as $index=>$item) {
+            if (!is_array($item)) continue;
+            $fecha = trim((string)($item['fecha_estimada'] ?? ''));
+            $kgPlanta = (float)($item['kg_planta_proyectado'] ?? 0);
+            $plantasCosecha = (int)($item['plantas_proyectadas'] ?? $plantas);
+            $kg = (float)($item['kg_proyectado'] ?? 0);
+            if ($kg <= 0 && $kgPlanta > 0 && $plantasCosecha > 0) $kg = $kgPlanta * $plantasCosecha;
+            if ($fecha==='' || $kg<=0 || $plantasCosecha<=0) {
+                service_return(['success'=>false,'message'=>'La cosecha '.($index+1).' requiere fecha, plantas y kilogramos proyectados mayores que cero.','data'=>[]]);
+            }
+            $normalized[] = ['id'=>trim((string)($item['id'] ?? '')),'numero'=>$index+1,'fecha'=>$fecha,
+                'kg_planta'=>$kgPlanta>0 ? $kgPlanta : $kg/$plantasCosecha,'plantas'=>$plantasCosecha,
+                'kg'=>$kg,'observacion'=>trim((string)($item['observacion'] ?? ''))];
+        }
+        if (!$normalized) service_return(['success'=>false,'message'=>'Agrega al menos una cosecha proyectada válida.','data'=>[]]);
+
+        $now = date('Y-m-d H:i:s');
+        $actor = (string)($_SESSION['agronomo_user_id'] ?? '');
+        $planId = $id !== '' ? $id : bin2hex(random_bytes(16));
+        $this->model->beginTransaction();
+        try {
+            if ($id === '') {
+                $this->model->executePrepared(
+                    "INSERT INTO planes_cosecha(id,finca_id,lote_id,cultivo_id,nombre,fecha_inicio,plantas_productivas,estado,observacion,voided,created_at,updated_at,created_by)
+                     VALUES(:id,:finca,:lote,:cultivo,:nombre,:fecha,:plantas,:estado,:observacion,'1',:created_at,:updated_at,:actor)",
+                    [':id'=>$planId,':finca'=>$fincaId,':lote'=>$loteId !== '' ? $loteId : null,':cultivo'=>$cultivoId,':nombre'=>$nombre,
+                     ':fecha'=>$fechaInicio,':plantas'=>$plantas,':estado'=>$estado,':observacion'=>trim((string)($data['observacion'] ?? '')),
+                     ':created_at'=>$now,':updated_at'=>$now,':actor'=>$actor]
+                );
+            } else {
+                $this->model->executePrepared(
+                    "UPDATE planes_cosecha SET finca_id=:finca,lote_id=:lote,cultivo_id=:cultivo,nombre=:nombre,
+                     fecha_inicio=:fecha,plantas_productivas=:plantas,estado=:estado,observacion=:observacion,updated_at=:updated_at WHERE id=:id",
+                    [':id'=>$planId,':finca'=>$fincaId,':lote'=>$loteId !== '' ? $loteId : null,':cultivo'=>$cultivoId,':nombre'=>$nombre,
+                     ':fecha'=>$fechaInicio,':plantas'=>$plantas,':estado'=>$estado,':observacion'=>trim((string)($data['observacion'] ?? '')),':updated_at'=>$now]
+                );
+            }
+            $keptIds = [];
+            foreach ($normalized as $item) {
+                $projectionId = $item['id'];
+                if ($projectionId !== '') {
+                    $owned = $this->model->queryPrepared("SELECT id FROM cosechas_proyectadas WHERE id=:id AND plan_id=:plan LIMIT 1",[':id'=>$projectionId,':plan'=>$planId]);
+                    if (!$owned) throw new RuntimeException('Una cosecha proyectada no pertenece al plan seleccionado.');
+                    $this->model->executePrepared(
+                        "UPDATE cosechas_proyectadas SET numero=:numero,fecha_estimada=:fecha,kg_planta_proyectado=:kg_planta,
+                         plantas_proyectadas=:plantas,kg_proyectado=:kg,observacion=:observacion,voided='1',updated_at=:updated_at WHERE id=:id",
+                        [':id'=>$projectionId,':numero'=>$item['numero'],':fecha'=>$item['fecha'],':kg_planta'=>$item['kg_planta'],
+                         ':plantas'=>$item['plantas'],':kg'=>$item['kg'],':observacion'=>$item['observacion'],':updated_at'=>$now]
+                    );
+                } else {
+                    $projectionId = bin2hex(random_bytes(16));
+                    $this->model->executePrepared(
+                        "INSERT INTO cosechas_proyectadas(id,plan_id,numero,fecha_estimada,kg_planta_proyectado,plantas_proyectadas,
+                         kg_proyectado,observacion,estado,voided,created_at,updated_at,created_by)
+                         VALUES(:id,:plan,:numero,:fecha,:kg_planta,:plantas,:kg,:observacion,'PENDIENTE','1',:created_at,:updated_at,:actor)",
+                        [':id'=>$projectionId,':plan'=>$planId,':numero'=>$item['numero'],':fecha'=>$item['fecha'],':kg_planta'=>$item['kg_planta'],
+                         ':plantas'=>$item['plantas'],':kg'=>$item['kg'],':observacion'=>$item['observacion'],':created_at'=>$now,':updated_at'=>$now,':actor'=>$actor]
+                    );
+                }
+                $keptIds[] = $projectionId;
+            }
+            if ($id !== '') {
+                $old = $this->model->queryPrepared("SELECT id FROM cosechas_proyectadas WHERE plan_id=:plan AND voided='1'",[':plan'=>$planId]);
+                foreach ($old as $row) {
+                    if (in_array((string)$row['id'],$keptIds,true)) continue;
+                    $real = $this->model->queryPrepared("SELECT id FROM cosechas_reales WHERE cosecha_proyectada_id=:id AND voided='1' LIMIT 1",[':id'=>$row['id']]);
+                    if ($real) throw new RuntimeException('No puedes eliminar una cosecha proyectada que ya tiene producción real registrada.');
+                    $this->model->executePrepared("UPDATE cosechas_proyectadas SET voided='0',updated_at=:now WHERE id=:id",[':id'=>$row['id'],':now'=>$now]);
+                }
+            }
+            $this->model->commit();
+        } catch (Throwable $e) {
+            $this->model->rollBack();
+            service_return(['success'=>false,'message'=>$e->getMessage(),'data'=>[]]);
+        }
+        $this->auditWeb('PLAN_COSECHA_GUARDADO',$planId.' · '.$nombre);
+        service_return(['data'=>['id'=>$planId],'message'=>$id==='' ? 'Plan de cosecha creado con éxito.' : 'Plan de cosecha actualizado con éxito.']);
+    }
+
+    public function saveCosechaRealWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        $projectionId = trim((string)($data['cosecha_proyectada_id'] ?? ''));
+        $fecha = trim((string)($data['fecha'] ?? ''));
+        $kg = round((float)($data['kg_real'] ?? 0), 2);
+        $plantas = ($data['plantas_cosechadas'] ?? '') === '' ? null : (int)$data['plantas_cosechadas'];
+        $rows = $this->model->queryPrepared(
+            "SELECT cp.id,cp.kg_proyectado,p.finca_id FROM cosechas_proyectadas cp
+             JOIN planes_cosecha p ON p.id=cp.plan_id
+             WHERE cp.id=:id AND cp.voided='1' AND p.voided='1' LIMIT 1", [':id'=>$projectionId]
+        );
+        if (!$rows) service_return(['success'=>false,'message'=>'La cosecha proyectada ya no existe.','data'=>[]]);
+        if ($fecha==='' || $kg<=0 || ($plantas !== null && $plantas<0)) {
+            service_return(['success'=>false,'message'=>'Fecha y kilogramos reales mayores que cero son obligatorios.','data'=>[]]);
+        }
+        $this->assertFincaAccesible((string)$rows[0]['finca_id']);
+        $now = date('Y-m-d H:i:s');
+        if ($id === '') {
+            $id = bin2hex(random_bytes(16));
+            $this->model->executePrepared(
+                "INSERT INTO cosechas_reales(id,cosecha_proyectada_id,fecha,kg_real,plantas_cosechadas,observacion,voided,created_at,updated_at,created_by)
+                 VALUES(:id,:proyeccion,:fecha,:kg,:plantas,:observacion,'1',:created_at,:updated_at,:actor)",
+                [':id'=>$id,':proyeccion'=>$projectionId,':fecha'=>$fecha,':kg'=>$kg,':plantas'=>$plantas,
+                 ':observacion'=>trim((string)($data['observacion'] ?? '')),':created_at'=>$now,':updated_at'=>$now,':actor'=>$_SESSION['agronomo_user_id'] ?? '']
+            );
+        } else {
+            $owned = $this->model->queryPrepared("SELECT id FROM cosechas_reales WHERE id=:id AND cosecha_proyectada_id=:proyeccion AND voided='1' LIMIT 1",[':id'=>$id,':proyeccion'=>$projectionId]);
+            if (!$owned) service_return(['success'=>false,'message'=>'El registro real no pertenece a esta cosecha.','data'=>[]]);
+            $this->model->executePrepared(
+                "UPDATE cosechas_reales SET fecha=:fecha,kg_real=:kg,plantas_cosechadas=:plantas,observacion=:observacion,updated_at=:updated_at WHERE id=:id",
+                [':id'=>$id,':fecha'=>$fecha,':kg'=>$kg,':plantas'=>$plantas,':observacion'=>trim((string)($data['observacion'] ?? '')),':updated_at'=>$now]
+            );
+        }
+        $totalRows = $this->model->queryPrepared("SELECT COALESCE(SUM(kg_real),0) AS total FROM cosechas_reales WHERE cosecha_proyectada_id=:id AND voided='1'",[':id'=>$projectionId]);
+        $totalReal = (float)($totalRows[0]['total'] ?? 0);
+        $nextState = $totalReal <= 0 ? 'PENDIENTE' : ($totalReal >= (float)$rows[0]['kg_proyectado'] ? 'CUMPLIDA' : 'EN_CURSO');
+        $this->model->executePrepared("UPDATE cosechas_proyectadas SET estado=:estado,updated_at=:now WHERE id=:id",[':estado'=>$nextState,':now'=>$now,':id'=>$projectionId]);
+        $this->auditWeb('COSECHA_REAL_GUARDADA',$id);
+        service_return(['data'=>['id'=>$id],'message'=>'Cosecha real registrada con éxito.']);
+    }
+
+    public function anularCosechaRealWeb($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        $rows = $this->model->queryPrepared(
+            "SELECT cr.id,cr.cosecha_proyectada_id,cp.kg_proyectado,p.finca_id
+             FROM cosechas_reales cr
+             JOIN cosechas_proyectadas cp ON cp.id=cr.cosecha_proyectada_id
+             JOIN planes_cosecha p ON p.id=cp.plan_id
+             WHERE cr.id=:id AND cr.voided='1' LIMIT 1", [':id'=>$id]
+        );
+        if (!$rows) service_return(['success'=>false,'message'=>'El registro ya fue anulado o no existe.','data'=>[]]);
+        $this->assertFincaAccesible((string)$rows[0]['finca_id']);
+        $now = date('Y-m-d H:i:s');
+        $projectionId = (string)$rows[0]['cosecha_proyectada_id'];
+        $this->model->executePrepared(
+            "UPDATE cosechas_reales SET voided='0',updated_at=:now WHERE id=:id",
+            [':id'=>$id,':now'=>$now]
+        );
+        $totals = $this->model->queryPrepared(
+            "SELECT COALESCE(SUM(kg_real),0) AS total FROM cosechas_reales
+             WHERE cosecha_proyectada_id=:id AND voided='1'", [':id'=>$projectionId]
+        );
+        $totalReal = (float)($totals[0]['total'] ?? 0);
+        $projected = (float)$rows[0]['kg_proyectado'];
+        $state = $totalReal <= 0 ? 'PENDIENTE' : ($totalReal >= $projected ? 'CUMPLIDA' : 'EN_CURSO');
+        $this->model->executePrepared(
+            "UPDATE cosechas_proyectadas SET estado=:estado,updated_at=:now WHERE id=:id",
+            [':estado'=>$state,':now'=>$now,':id'=>$projectionId]
+        );
+        $this->auditWeb('COSECHA_REAL_ANULADA',$id);
+        service_return(['data'=>['id'=>$id],'message'=>'Registro de cosecha anulado con éxito.']);
+    }
+
+    public function getPlanesCosechaMobile($data)
+    {
+        $usuarioId = trim((string)($data['authenticated_user_id'] ?? $data['usuario_id'] ?? ''));
+        if (!$this->mobileUserCan($usuarioId, 'cosechas', 'ver')) {
+            service_return(['success'=>false,'message'=>'No tienes permiso para consultar proyecciones de cosecha.','data'=>[]]);
+        }
+        $isAdmin = $this->mobileUserIsAdmin($usuarioId);
+        $params = [];
+        $scope = '';
+        if (!$isAdmin) {
+            $scope = ' AND EXISTS (SELECT 1 FROM usuario_fincas uf WHERE uf.finca_id=p.finca_id AND uf.usuario_id=:usuario)';
+            $params[':usuario'] = $usuarioId;
+        }
+        $planes = $this->model->queryPrepared(
+            "SELECT p.id,p.finca_id,p.lote_id,p.cultivo_id,p.nombre,p.fecha_inicio,p.plantas_productivas,
+                    p.estado,p.observacion,p.updated_at,f.descripcion AS finca_nombre,
+                    COALESCE(l.nombre,'Todos los lotes') AS lote_nombre,c.descripcion AS cultivo_nombre
+             FROM planes_cosecha p JOIN fincas f ON f.id=p.finca_id
+             LEFT JOIN lotes l ON l.id=p.lote_id JOIN cultivos c ON c.id=p.cultivo_id
+             WHERE p.voided='1' AND p.estado IN ('ACTIVO','FINALIZADO') $scope
+             ORDER BY FIELD(p.estado,'ACTIVO','FINALIZADO'),p.fecha_inicio DESC", $params
+        );
+        foreach ($planes as &$plan) {
+            $proyecciones = $this->model->queryPrepared(
+                "SELECT cp.id,cp.plan_id,cp.numero,cp.fecha_estimada,cp.kg_planta_proyectado,
+                        cp.plantas_proyectadas,cp.kg_proyectado,cp.estado,
+                        COALESCE(SUM(cr.kg_real),0) AS kg_real,COUNT(cr.id) AS total_registros
+                 FROM cosechas_proyectadas cp
+                 LEFT JOIN cosechas_reales cr ON cr.cosecha_proyectada_id=cp.id AND cr.voided='1'
+                 WHERE cp.plan_id=:plan AND cp.voided='1' GROUP BY cp.id ORDER BY cp.numero",
+                [':plan'=>$plan['id']]
+            );
+            foreach ($proyecciones as &$item) {
+                $projected = (float)$item['kg_proyectado'];
+                $item['porcentaje_ejecucion'] = $projected > 0
+                    ? round(((float)$item['kg_real']/$projected)*100,1) : 0;
+            }
+            unset($item);
+            $plan['proyecciones'] = $proyecciones;
+        }
+        unset($plan);
+        service_return(['data'=>$planes,'message'=>'Planes de cosecha enviados correctamente.']);
+    }
+
+    public function saveCosechaRealMobile($data)
+    {
+        $id = trim((string)($data['id'] ?? ''));
+        $projectionId = trim((string)($data['cosecha_proyectada_id'] ?? ''));
+        $usuarioId = trim((string)($data['created_by'] ?? ''));
+        $fecha = trim((string)($data['fecha'] ?? ''));
+        $kg = round((float)($data['kg_real'] ?? 0),2);
+        $plantas = ($data['plantas_cosechadas'] ?? '') === '' ? null : (int)$data['plantas_cosechadas'];
+        $rows = $this->model->queryPrepared(
+            "SELECT cp.kg_proyectado,p.finca_id FROM cosechas_proyectadas cp
+             JOIN planes_cosecha p ON p.id=cp.plan_id WHERE cp.id=:id AND cp.voided='1' AND p.voided='1' LIMIT 1",
+            [':id'=>$projectionId]
+        );
+        if (!$rows || $id==='' || $fecha==='' || $kg<=0) {
+            service_return(['success'=>false,'message'=>'La cosecha, fecha y kilogramos son obligatorios.','data'=>[]]);
+        }
+        if (!$this->mobileUserIsAdmin($usuarioId)) {
+            $access = $this->model->queryPrepared(
+                "SELECT 1 FROM usuario_fincas WHERE usuario_id=:usuario AND finca_id=:finca LIMIT 1",
+                [':usuario'=>$usuarioId,':finca'=>$rows[0]['finca_id']]
+            );
+            if (!$access) service_return(['success'=>false,'message'=>'No tienes acceso al plan de esta finca.','data'=>[]]);
+        }
+        $now = date('Y-m-d H:i:s');
+        $exists = $this->model->queryPrepared("SELECT id FROM cosechas_reales WHERE id=:id LIMIT 1",[':id'=>$id]);
+        if (!$exists) {
+            $this->model->executePrepared(
+                "INSERT INTO cosechas_reales(id,cosecha_proyectada_id,fecha,kg_real,plantas_cosechadas,observacion,voided,created_at,updated_at,created_by)
+                 VALUES(:id,:proyeccion,:fecha,:kg,:plantas,:observacion,'1',:created_at,:updated_at,:actor)",
+                [':id'=>$id,':proyeccion'=>$projectionId,':fecha'=>$fecha,':kg'=>$kg,':plantas'=>$plantas,
+                 ':observacion'=>trim((string)($data['observacion'] ?? '')),':created_at'=>$now,':updated_at'=>$now,':actor'=>$usuarioId]
+            );
+        }
+        $totals = $this->model->queryPrepared("SELECT COALESCE(SUM(kg_real),0) total FROM cosechas_reales WHERE cosecha_proyectada_id=:id AND voided='1'",[':id'=>$projectionId]);
+        $total = (float)($totals[0]['total'] ?? 0);
+        $state = $total >= (float)$rows[0]['kg_proyectado'] ? 'CUMPLIDA' : 'EN_CURSO';
+        $this->model->executePrepared("UPDATE cosechas_proyectadas SET estado=:estado,updated_at=:now WHERE id=:id",[':estado'=>$state,':now'=>$now,':id'=>$projectionId]);
+        service_return(['data'=>['id'=>$id],'message'=>'Cosecha real recibida correctamente.']);
+    }
+
+    // =====================================================================
     // CONSULTA WEB DE VISITAS TÉCNICAS (solo lectura)
     // =====================================================================
 
@@ -1718,6 +2177,7 @@ class AgronomoController extends ControllerBase
         $where = $scope['sql'] !== '' ? "WHERE {$scope['sql']}" : '';
         $visitas = $this->model->queryPrepared(
             "SELECT vt.id, vt.finca_id, vt.fecha, vt.descripcion, vt.observacion, vt.voided,
+                    vt.latitude, vt.longitude, vt.location_accuracy, vt.location_captured_at,
                     vt.created_at, vt.updated_at, vt.created_by,
                     f.descripcion AS finca_nombre,
                     COALESCE(u.name, vt.created_by) AS tecnico_nombre,
@@ -1740,6 +2200,7 @@ class AgronomoController extends ControllerBase
              LEFT JOIN visita_detalles_lote vdl ON vdl.visita_id = vt.id AND vdl.voided = '1'
              $where
              GROUP BY vt.id, vt.finca_id, vt.fecha, vt.descripcion, vt.observacion, vt.voided,
+                      vt.latitude, vt.longitude, vt.location_accuracy, vt.location_captured_at,
                       vt.created_at, vt.updated_at, f.descripcion, u.name, vt.created_by
              ORDER BY vt.fecha DESC",
             $scope['params']
@@ -1755,6 +2216,7 @@ class AgronomoController extends ControllerBase
         }
         $visitaRows = $this->model->queryPrepared(
             "SELECT vt.id, vt.finca_id, vt.fecha, vt.descripcion, vt.observacion, vt.voided,
+                    vt.latitude, vt.longitude, vt.location_accuracy, vt.location_captured_at,
                     vt.created_at, vt.updated_at, vt.created_by,
                     f.descripcion AS finca_nombre,
                     COALESCE(u.name, vt.created_by) AS tecnico_nombre
@@ -1770,6 +2232,7 @@ class AgronomoController extends ControllerBase
         $this->assertFincaAccesible((string)($visitaRows[0]['finca_id'] ?? ''));
         $lotes = $this->model->queryPrepared(
             "SELECT vdl.id, vdl.lote_id, vdl.cultivo_id, vdl.observacion, vdl.voided,
+                    vdl.latitude, vdl.longitude, vdl.location_accuracy, vdl.location_captured_at,
                     l.nombre AS lote_nombre, c.descripcion AS cultivo_nombre
              FROM visita_detalles_lote vdl
              LEFT JOIN lotes l ON l.id = vdl.lote_id
@@ -1779,7 +2242,8 @@ class AgronomoController extends ControllerBase
             [':visita_id' => $visitaId]
         );
         $hallazgos = $this->model->queryPrepared(
-            "SELECT id, visita_detalle_id, descripcion, imagen_path_srv, created_at
+            "SELECT id, visita_detalle_id, descripcion, imagen_path_srv, created_at,
+                    latitude, longitude, location_accuracy, location_captured_at
              FROM visita_detalles_hallazgos WHERE visita_id = :visita_id AND voided = '1' ORDER BY created_at",
             [':visita_id' => $visitaId]
         );
@@ -1810,6 +2274,11 @@ class AgronomoController extends ControllerBase
              WHERE vdr.visita_id = :visita_id AND vdr.voided = '1'",
             [':visita_id' => $visitaId]
         );
+        $firmas = $this->model->queryPrepared(
+            "SELECT id,nombre,documento,rol,firma_base64,signed_at,latitude,longitude,location_accuracy,location_captured_at
+             FROM visita_firmas WHERE visita_id=:visita_id AND voided='1' LIMIT 1",
+            [':visita_id'=>$visitaId]
+        );
         service_return(['data' => [
             'visita' => $visitaRows[0],
             'lotes' => $lotes,
@@ -1817,6 +2286,7 @@ class AgronomoController extends ControllerBase
             'actividades' => $actividades,
             'formulas' => $formulas,
             'recomendaciones' => $recomendaciones,
+            'firma_asistencia' => $firmas[0] ?? null,
         ], 'message' => 'Detalle de la visita consultado con éxito.']);
     }
 

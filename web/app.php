@@ -1396,6 +1396,7 @@ $imgVersion = (string) max(array_map('filemtime', glob(dirname(__DIR__) . '/asse
                             <option>TERCERO</option>
                             <option>SOCIO</option>
                             <option>JOIN VENTURE</option>
+                            <option>AGROJAR</option>
                         </select></label><label class="field wide"><span>Nombre productor *</span><input name="productor_nombre" required></label><label class="field"><span>Cédula</span><input name="cedula"></label><label class="field"><span>NIT</span><input name="nit"></label><label class="field"><span>DV</span><input name="dv" maxlength="3"></label><label class="field"><span>Teléfono</span><input name="telefono"></label><label class="field wide"><span>Correo</span><input name="correo" type="email"></label></div>
             </section>
             <section class="wizard-step" data-step="1">

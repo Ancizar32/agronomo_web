@@ -4,3 +4,9 @@
 !database/rollbacks/032_planes_cosecha.sql
 !database/migrations/033_plan_cosecha_lote_opcional.sql
 !database/rollbacks/033_plan_cosecha_lote_opcional.sql
+!database/migrations/034_catalogos_carga_predios.sql
+!database/tools/actualizar_fechas_planes_cosecha.sql
+
+# Archivos del cliente, cargas generadas y credenciales provisionales (datos personales)
+resources/
+__pycache__/

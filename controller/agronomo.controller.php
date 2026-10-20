@@ -283,6 +283,28 @@ class AgronomoController extends ControllerBase
         return strtolower((string)($rows[0]['codigo'] ?? '')) === 'admin';
     }
 
+    // Todas las descargas de visitas comparten el alcance vigente. La autoría
+    // histórica no concede acceso cuando cambia el rol o la asignación.
+    private function mobileVisitScope(array $data, bool $conLote = false): array
+    {
+        $usuarioId = trim((string)($data['usuario_id'] ?? ''));
+        $sql = "vt.voided='1' AND vt.fecha>=:fecha_desde";
+        $params = [':fecha_desde'=>$this->fechaDesdeMobile($data)];
+        if (!$this->mobileUserIsAdmin($usuarioId)) {
+            $sql .= " AND EXISTS (SELECT 1 FROM usuario_fincas uf
+                       JOIN fincas f ON f.id=uf.finca_id AND f.voided='1'
+                       WHERE uf.finca_id=vt.finca_id AND uf.usuario_id=:usuario)";
+            $params[':usuario'] = $usuarioId;
+            if ($conLote) {
+                $sql .= " AND EXISTS (SELECT 1 FROM lotes l
+                           JOIN usuario_fincas ul ON ul.finca_id=l.finca_id
+                           WHERE l.id=vdl.lote_id AND ul.usuario_id=:usuario_lote)";
+                $params[':usuario_lote'] = $usuarioId;
+            }
+        }
+        return ['sql'=>$sql, 'params'=>$params];
+    }
+
     private function mobileUserCan(string $usuarioId, string $module, string $action): bool
     {
         if ($this->mobileUserIsAdmin($usuarioId)) return true;
@@ -945,27 +967,12 @@ class AgronomoController extends ControllerBase
 
     public function descargarVisitaDetallesRecomendaciones($data = [])
     {
-        $a = $this->model;
-        $roll = $data['roll'] ?? '';
-        $usuarioId = $data['usuario_id'] ?? '';
-        $fechaDesde = $this->fechaDesdeMobile($data);
-
-        if ($roll === 'S') {
-            $data_load = $a->queryPrepared(
-                "SELECT vdr.* FROM visita_detalles_recomendaciones vdr
-                 JOIN visitas_tecnicas vt ON vt.id=vdr.visita_id
-                 WHERE vdr.voided='1' AND vt.fecha>=:fecha_desde",
-                [':fecha_desde'=>$fechaDesde]
-            );
-        } else {
-            $data_load = $a->queryPrepared(
-                "SELECT vdr.* FROM visita_detalles_recomendaciones vdr
-                 JOIN visitas_tecnicas vt ON vt.id = vdr.visita_id
-                 WHERE vdr.voided='1' AND vt.created_by=:usuario AND vt.fecha>=:fecha_desde",
-                [':usuario'=>$usuarioId, ':fecha_desde'=>$fechaDesde]
-            );
-        }
-
+        $scope = $this->mobileVisitScope($data, true);
+        $data_load = $this->model->queryPrepared(
+            "SELECT vdr.* FROM visita_detalles_recomendaciones vdr JOIN visitas_tecnicas vt ON vt.id=vdr.visita_id JOIN visita_detalles_lote vdl ON vdl.id=vdr.visita_detalle_id AND vdl.visita_id=vt.id
+             WHERE {$scope['sql']} AND vdr.voided='1'",
+            $scope['params']
+        );
         service_return(['data' => $data_load, 'message' => 'El listado de recomendaciones de visita por lote se envia con éxito!']);
     }
 
@@ -1035,26 +1042,12 @@ class AgronomoController extends ControllerBase
 
     public function descargarVisitaDetallesFormulas($data = [])
     {
-        $a = $this->model;
-        $roll = $data['roll'] ?? '';
-        $usuarioId = $data['usuario_id'] ?? '';
-        $fechaDesde = $this->fechaDesdeMobile($data);
-
-        if ($roll === 'S') {
-            $rows = $a->queryPrepared(
-                "SELECT vdf.* FROM visita_detalles_formulas vdf
-                 JOIN visitas_tecnicas vt ON vt.id=vdf.visita_id
-                 WHERE vdf.voided='1' AND vt.fecha>=:fecha_desde",
-                [':fecha_desde'=>$fechaDesde]
-            );
-        } else {
-            $rows = $a->queryPrepared(
-                "SELECT vdf.* FROM visita_detalles_formulas vdf
-                 JOIN visitas_tecnicas vt ON vt.id = vdf.visita_id
-                 WHERE vdf.voided='1' AND vt.created_by=:usuario AND vt.fecha>=:fecha_desde",
-                [':usuario'=>$usuarioId, ':fecha_desde'=>$fechaDesde]
-            );
-        }
+        $scope = $this->mobileVisitScope($data, true);
+        $rows = $this->model->queryPrepared(
+            "SELECT vdf.* FROM visita_detalles_formulas vdf JOIN visitas_tecnicas vt ON vt.id=vdf.visita_id JOIN visita_detalles_lote vdl ON vdl.id=vdf.visita_detalle_id AND vdl.visita_id=vt.id
+             WHERE {$scope['sql']} AND vdf.voided='1'",
+            $scope['params']
+        );
         $data_select = array_map([$this, 'decodeNewlines'], $rows);
         service_return(['data' => $data_select, 'message' => 'El listado de formulas de visita por lote se envia con éxito!']);
     }
@@ -1101,27 +1094,12 @@ class AgronomoController extends ControllerBase
 
     public function descargarActividades($data = [])
     {
-        $a = $this->model;
-        $roll = $data['roll'] ?? '';
-        $usuarioId = $data['usuario_id'] ?? '';
-        $fechaDesde = $this->fechaDesdeMobile($data);
-
-        if ($roll === 'S') {
-            $data_load = $a->queryPrepared(
-                "SELECT vda.* FROM visita_detalles_actividades vda
-                 JOIN visitas_tecnicas vt ON vt.id=vda.visita_id
-                 WHERE vda.voided='1' AND vt.fecha>=:fecha_desde",
-                [':fecha_desde'=>$fechaDesde]
-            );
-        } else {
-            $data_load = $a->queryPrepared(
-                "SELECT vda.* FROM visita_detalles_actividades vda
-                 JOIN visitas_tecnicas vt ON vt.id = vda.visita_id
-                 WHERE vda.voided='1' AND vt.created_by=:usuario AND vt.fecha>=:fecha_desde",
-                [':usuario'=>$usuarioId, ':fecha_desde'=>$fechaDesde]
-            );
-        }
-
+        $scope = $this->mobileVisitScope($data, true);
+        $data_load = $this->model->queryPrepared(
+            "SELECT vda.* FROM visita_detalles_actividades vda JOIN visitas_tecnicas vt ON vt.id=vda.visita_id JOIN visita_detalles_lote vdl ON vdl.id=vda.visita_detalle_id AND vdl.visita_id=vt.id
+             WHERE {$scope['sql']} AND vda.voided='1'",
+            $scope['params']
+        );
         service_return(['data' => $data_load, 'message' => 'El listado de actividades de visita por lote se envia con éxito!']);
     }
 
@@ -1195,26 +1173,12 @@ class AgronomoController extends ControllerBase
 
     public function descargarHallazgos($data = [])
     {
-        $a = $this->model;
-        $roll = $data['roll'] ?? '';
-        $usuarioId = $data['usuario_id'] ?? '';
-        $fechaDesde = $this->fechaDesdeMobile($data);
-
-        if ($roll === 'S') {
-            $data_load = $a->queryPrepared(
-                "SELECT vdh.* FROM visita_detalles_hallazgos vdh
-                 JOIN visitas_tecnicas vt ON vt.id=vdh.visita_id
-                 WHERE vt.fecha>=:fecha_desde",
-                [':fecha_desde'=>$fechaDesde]
-            );
-        } else {
-            $data_load = $a->queryPrepared(
-                "SELECT vdh.* FROM visita_detalles_hallazgos vdh
-                 JOIN visitas_tecnicas vt ON vt.id = vdh.visita_id
-                 WHERE vt.created_by=:usuario AND vt.fecha>=:fecha_desde",
-                [':usuario'=>$usuarioId, ':fecha_desde'=>$fechaDesde]
-            );
-        }
+        $scope = $this->mobileVisitScope($data, true);
+        $data_load = $this->model->queryPrepared(
+            "SELECT vdh.* FROM visita_detalles_hallazgos vdh JOIN visitas_tecnicas vt ON vt.id=vdh.visita_id JOIN visita_detalles_lote vdl ON vdl.id=vdh.visita_detalle_id AND vdl.visita_id=vt.id
+             WHERE {$scope['sql']}",
+            $scope['params']
+        );
         foreach ($data_load as $key => $value) {
             if (!empty($value['imagen_path_srv']) && file_exists($value['imagen_path_srv'])) {
                 $contenido = file_get_contents($value['imagen_path_srv']);
@@ -1277,27 +1241,12 @@ class AgronomoController extends ControllerBase
 
     public function getVisitaDetalleLote($data = [])
     {
-        $a = $this->model;
-        $roll = $data['roll'] ?? '';
-        $usuarioId = $data['usuario_id'] ?? '';
-        $fechaDesde = $this->fechaDesdeMobile($data);
-
-        if ($roll === 'S') {
-            $data_load = $a->queryPrepared(
-                "SELECT vdl.* FROM visita_detalles_lote vdl
-                 JOIN visitas_tecnicas vt ON vt.id=vdl.visita_id
-                 WHERE vt.fecha>=:fecha_desde",
-                [':fecha_desde'=>$fechaDesde]
-            );
-        } else {
-            $data_load = $a->queryPrepared(
-                "SELECT vdl.* FROM visita_detalles_lote vdl
-                 JOIN visitas_tecnicas vt ON vt.id = vdl.visita_id
-                 WHERE vt.created_by=:usuario AND vt.fecha>=:fecha_desde",
-                [':usuario'=>$usuarioId, ':fecha_desde'=>$fechaDesde]
-            );
-        }
-
+        $scope = $this->mobileVisitScope($data, true);
+        $data_load = $this->model->queryPrepared(
+            "SELECT vdl.* FROM visita_detalles_lote vdl JOIN visitas_tecnicas vt ON vt.id=vdl.visita_id
+             WHERE {$scope['sql']}",
+            $scope['params']
+        );
         service_return(['data' => $data_load, 'message' => 'El listado de detalle de visita por lote se envia con éxito!']);
     }
 
@@ -1346,26 +1295,12 @@ class AgronomoController extends ControllerBase
 
     public function getVisitas($data)
     {
-        $a = $this->model;
-        $usuario_id = trim((string)($data['usuario_id'] ?? ''));
-        $fechaDesde = $this->fechaDesdeMobile($data);
-
-        if ($this->mobileUserIsAdmin($usuario_id)) {
-            $data_load = $a->queryPrepared(
-                "SELECT vt.* FROM visitas_tecnicas vt
-                 WHERE vt.voided='1' AND vt.fecha>=:fecha_desde ORDER BY vt.fecha DESC",
-                [':fecha_desde'=>$fechaDesde]
-            );
-        } else {
-            $data_load = $a->queryPrepared(
-                "SELECT DISTINCT vt.* FROM visitas_tecnicas vt
-                 JOIN usuario_fincas uf ON uf.finca_id=vt.finca_id
-                 WHERE uf.usuario_id=:usuario AND vt.voided='1' AND vt.fecha>=:fecha_desde
-                 ORDER BY vt.fecha DESC",
-                [':usuario'=>$usuario_id, ':fecha_desde'=>$fechaDesde]
-            );
-        }
-
+        $scope = $this->mobileVisitScope($data, false);
+        $data_load = $this->model->queryPrepared(
+            "SELECT vt.* FROM visitas_tecnicas vt
+             WHERE {$scope['sql']} ORDER BY vt.fecha DESC",
+            $scope['params']
+        );
         service_return(['data' => $data_load, 'message' => 'El listado de visitas tecnicas se envia con éxito!']);
     }
 
@@ -1421,21 +1356,12 @@ class AgronomoController extends ControllerBase
 
     public function getVisitaFirmas($data = [])
     {
-        $usuarioId = trim((string)($data['usuario_id'] ?? ''));
-        $fechaDesde = $this->fechaDesdeMobile($data);
-        if ($this->mobileUserIsAdmin($usuarioId)) {
-            $rows = $this->model->queryPrepared(
-                "SELECT vf.* FROM visita_firmas vf JOIN visitas_tecnicas vt ON vt.id=vf.visita_id WHERE vt.fecha>=:fecha",
-                [':fecha'=>$fechaDesde]
-            );
-        } else {
-            $rows = $this->model->queryPrepared(
-                "SELECT DISTINCT vf.* FROM visita_firmas vf JOIN visitas_tecnicas vt ON vt.id=vf.visita_id
-                 JOIN usuario_fincas uf ON uf.finca_id=vt.finca_id
-                 WHERE uf.usuario_id=:usuario AND vt.fecha>=:fecha",
-                [':usuario'=>$usuarioId, ':fecha'=>$fechaDesde]
-            );
-        }
+        $scope = $this->mobileVisitScope($data, false);
+        $rows = $this->model->queryPrepared(
+            "SELECT vf.* FROM visita_firmas vf JOIN visitas_tecnicas vt ON vt.id=vf.visita_id
+             WHERE {$scope['sql']}",
+            $scope['params']
+        );
         service_return(['data'=>$rows,'message'=>'Firmas de asistencia consultadas con éxito.']);
     }
 

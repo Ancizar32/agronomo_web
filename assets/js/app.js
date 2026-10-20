@@ -135,11 +135,25 @@ window.addEventListener("resize", closeAllRowMenus);
 // al login con un mensaje claro, en vez de dejarlo viendo una pantalla
 // muerta con errores de permisos que no tienen sentido.
 let sessionExpiredHandled = false;
+let manualLogoutInProgress = false;
+
+function clearLoginMessage() {
+  message.textContent = "";
+  message.classList.remove("visible");
+}
+
 function handleSessionExpired() {
+  // Al cerrar sesión todavía pueden terminar peticiones iniciadas por el
+  // módulo que estaba abierto. Su 401 pertenece a la sesión anterior y no
+  // debe volver a pintar el aviso sobre el siguiente inicio de sesión.
+  if (manualLogoutInProgress) return;
   if (sessionExpiredHandled) return;
   sessionExpiredHandled = true;
   sessionStorage.removeItem("agronomo_user");
-  sessionStorage.removeItem("agronomo_active_view");
+  // Se conserva agronomo_active_view: al volver a iniciar sesión,
+  // restoreLastView() hace click en ese módulo y lo recarga con la sesión
+  // nueva. Si se borraba, la vista del módulo quedaba visible pero sin
+  // recargar, mostrando el error 401 viejo y la tabla vacía.
   document.documentElement.classList.remove("agronomo-has-session");
   document.documentElement.removeAttribute("data-agronomo-view");
   if (forcedPasswordDialog.open) forcedPasswordDialog.close();
@@ -166,6 +180,8 @@ function setSidebarCollapsed(collapsed) {
 }
 
 function showDashboard(user) {
+  clearLoginMessage();
+  sessionExpiredHandled = false;
   const name = user.name || user.user || "Equipo";
   loginView.hidden = true;
   dashboardView.hidden = false;
@@ -217,11 +233,16 @@ function restoreLastView() {
     // posterior en "Resumen" cambia el atributo .hidden correctamente, pero
     // esa regla !important lo sigue tapando, dejando la vista en blanco.
     document.documentElement.removeAttribute("data-agronomo-view");
-    if (!savedView) return;
-    const target = document.querySelector(
-      `.nav-item[data-view="${savedView}"]`
-    );
-    if (target && !target.hidden) target.click();
+    const target = savedView
+      ? document.querySelector(`.nav-item[data-view="${savedView}"]`)
+      : null;
+    if (target && !target.hidden) {
+      target.click();
+      return;
+    }
+    // Sin módulo guardado (o sin permiso para él): volver a Resumen para no
+    // dejar visible la vista que estaba abierta antes de expirar la sesión.
+    document.querySelector(".nav-item:not([data-view])")?.click();
   }, 0);
 }
 
@@ -596,6 +617,9 @@ form.addEventListener("submit", async (event) => {
       throw new Error(payload.message || "No fue posible iniciar sesión.");
     const user = payload.detail || {};
     sessionStorage.setItem("agronomo_user", JSON.stringify(user));
+    manualLogoutInProgress = false;
+    clearLoginMessage();
+    sessionExpiredHandled = false;
     continueAfterLogin(user);
   } catch (error) {
     message.textContent =
@@ -607,6 +631,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 async function logout() {
+  manualLogoutInProgress = true;
   try {
     await fetch("api/index.php", {
       method: "POST",
@@ -631,6 +656,13 @@ async function logout() {
   dashboardView.hidden = true;
   loginView.hidden = false;
   form.reset();
+  clearLoginMessage();
+  // Se conserva una ventana corta para ignorar respuestas tardías que
+  // salieron antes de cerrar la sesión PHP.
+  window.setTimeout(() => {
+    manualLogoutInProgress = false;
+    clearLoginMessage();
+  }, 1200);
 }
 
 document.querySelector("#logout-button").addEventListener("click", logout);

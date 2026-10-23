@@ -1391,6 +1391,7 @@ $imgVersion = (string) max(array_map('filemtime', glob(dirname(__DIR__) . '/asse
                 <li data-property-step="2" role="button" tabindex="0">Legal</li>
                 <li data-property-step="3" role="button" tabindex="0">Certificaciones</li>
             </ol>
+            <div id="property-alerts" class="property-alerts" role="status" hidden></div>
             <section class="wizard-step active" data-step="0">
                 <div class="form-grid"><label class="field"><span>Tipo productor *</span><select name="tipo" required>
                             <option>TERCERO</option>

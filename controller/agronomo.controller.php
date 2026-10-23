@@ -2841,7 +2841,31 @@ class AgronomoController extends ControllerBase
                        ((SELECT COUNT(*) FROM predio_certificaciones pc
                          WHERE pc.finca_id=f.id AND pc.vigente=1 AND (pc.valido_hasta IS NULL OR DATEDIFF(pc.valido_hasta,CURDATE())<=30))
                         + IF(f.registro_ica=1 AND (f.vencimiento_ica IS NULL OR DATEDIFF(f.vencimiento_ica,CURDATE())<=30),1,0)
-                        + IF(f.contrato_proveeduria=1 AND (f.fecha_vencimiento_contrato IS NULL OR DATEDIFF(f.fecha_vencimiento_contrato,CURDATE())<=30),1,0)) AS alertas_criticas
+                        + IF(f.contrato_proveeduria=1 AND (f.fecha_vencimiento_contrato IS NULL OR DATEDIFF(f.fecha_vencimiento_contrato,CURDATE())<=30),1,0)) AS alertas_criticas,
+                       -- Detalle legible de las mismas alertas que cuenta total_alertas,
+                       -- para que la tabla diga de qué documento se trata.
+                       CONCAT_WS('||',
+                         (SELECT GROUP_CONCAT(CONCAT(COALESCE(tc.nombre,pc.tipo),': ',
+                                   CASE WHEN pc.valido_hasta IS NULL THEN 'sin fecha de vencimiento'
+                                        WHEN DATEDIFF(pc.valido_hasta,CURDATE())<0 THEN CONCAT('vencida hace ',-DATEDIFF(pc.valido_hasta,CURDATE()),' días')
+                                        WHEN DATEDIFF(pc.valido_hasta,CURDATE())=0 THEN 'vence hoy'
+                                        ELSE CONCAT('vence en ',DATEDIFF(pc.valido_hasta,CURDATE()),' días') END)
+                                 SEPARATOR '||')
+                          FROM predio_certificaciones pc LEFT JOIN tipos_certificacion tc ON tc.codigo=pc.tipo
+                          WHERE pc.finca_id=f.id AND pc.vigente=1 AND (pc.valido_hasta IS NULL OR DATEDIFF(pc.valido_hasta,CURDATE())<=90)),
+                         IF(f.registro_ica=1 AND (f.vencimiento_ica IS NULL OR DATEDIFF(f.vencimiento_ica,CURDATE())<=90),
+                            CONCAT('Registro ICA: ',
+                              CASE WHEN f.vencimiento_ica IS NULL THEN 'sin fecha de vencimiento'
+                                   WHEN DATEDIFF(f.vencimiento_ica,CURDATE())<0 THEN CONCAT('vencido hace ',-DATEDIFF(f.vencimiento_ica,CURDATE()),' días')
+                                   WHEN DATEDIFF(f.vencimiento_ica,CURDATE())=0 THEN 'vence hoy'
+                                   ELSE CONCAT('vence en ',DATEDIFF(f.vencimiento_ica,CURDATE()),' días') END), NULL),
+                         IF(f.contrato_proveeduria=1 AND (f.fecha_vencimiento_contrato IS NULL OR DATEDIFF(f.fecha_vencimiento_contrato,CURDATE())<=90),
+                            CONCAT('Contrato de proveeduría: ',
+                              CASE WHEN f.fecha_vencimiento_contrato IS NULL THEN 'sin fecha de vencimiento'
+                                   WHEN DATEDIFF(f.fecha_vencimiento_contrato,CURDATE())<0 THEN CONCAT('vencido hace ',-DATEDIFF(f.fecha_vencimiento_contrato,CURDATE()),' días')
+                                   WHEN DATEDIFF(f.fecha_vencimiento_contrato,CURDATE())=0 THEN 'vence hoy'
+                                   ELSE CONCAT('vence en ',DATEDIFF(f.fecha_vencimiento_contrato,CURDATE()),' días') END), NULL)
+                       ) AS alertas_detalle
                 FROM fincas f
                 LEFT JOIN lotes l ON l.finca_id = f.id AND l.voided = '1'
                 $where
@@ -2898,7 +2922,8 @@ class AgronomoController extends ControllerBase
         }
         $certificaciones = $this->model->queryPrepared(
             "SELECT pc.tipo,pc.vigente,pc.valido_hasta,COALESCE(tc.nombre,pc.tipo) AS nombre,
-                    COALESCE(tc.requiere_vencimiento,1) AS requiere_vencimiento
+                    COALESCE(tc.requiere_vencimiento,1) AS requiere_vencimiento,
+                    pc.documento_pdf,pc.documento_nombre,pc.documento_actualizado
              FROM predio_certificaciones pc
              LEFT JOIN tipos_certificacion tc ON tc.codigo=pc.tipo
              WHERE pc.finca_id=:finca ORDER BY nombre",
@@ -3078,12 +3103,83 @@ class AgronomoController extends ControllerBase
         } else {
             $this->model->executePrepared("INSERT INTO fincas (id,productor_id,descripcion,ubicacion,departamento,ciudad,vereda,departamento_id,municipio_id,localidad_rural_id,estado_predio,hectareas_totales,latitud,longitud,url_localizacion,contrato_proveeduria,fecha_contrato,fecha_vencimiento_contrato,version_contrato,registro_ica,numero_ica,vencimiento_ica,anticipo,valor_anticipo,sync,voided,created_at,updated_at,created_by) VALUES (:id,:productor,:nombre,:ubicacion,:departamento,:municipio,:localidad,:departamento_id,:municipio_id,:localidad_id,:estado,:hectareas,:latitud,:longitud,:url,:contrato,NULLIF(:fecha_contrato,''),NULLIF(:vence_contrato,''),:version,:ica,:numero_ica,NULLIF(:vence_ica,''),:anticipo,:valor,'1','1',:created_at,:now,:usuario)", $fincaParams);
         }
+        // Las certificaciones se recrean en cada guardado; el PDF adjunto de
+        // cada tipo se conserva y se reasigna a su nueva fila.
+        $documentos = [];
+        foreach ($this->model->queryPrepared("SELECT tipo,documento_pdf,documento_nombre,documento_actualizado FROM predio_certificaciones WHERE finca_id=:finca AND documento_pdf IS NOT NULL", [':finca'=>$fincaId]) as $documento) {
+            $documentos[$documento['tipo']] = $documento;
+        }
         $this->model->executePrepared("DELETE FROM predio_certificaciones WHERE finca_id=:finca", [':finca'=>$fincaId]);
         foreach (($data['certificaciones'] ?? []) as $tipo => $cert) {
             if (!is_array($cert) || empty($cert['vigente'])) continue;
-            $this->model->executePrepared("INSERT INTO predio_certificaciones (id,finca_id,tipo,vigente,valido_hasta) VALUES (:id,:finca,:tipo,1,NULLIF(:fecha,''))", [':id'=>bin2hex(random_bytes(16)),':finca'=>$fincaId,':tipo'=>$tipo,':fecha'=>$cert['valido_hasta'] ?? '']);
+            $documento = $documentos[$tipo] ?? [];
+            unset($documentos[$tipo]);
+            $this->model->executePrepared("INSERT INTO predio_certificaciones (id,finca_id,tipo,vigente,valido_hasta,documento_pdf,documento_nombre,documento_actualizado) VALUES (:id,:finca,:tipo,1,NULLIF(:fecha,''),:pdf,:pdf_nombre,:pdf_fecha)", [':id'=>bin2hex(random_bytes(16)),':finca'=>$fincaId,':tipo'=>$tipo,':fecha'=>$cert['valido_hasta'] ?? '',':pdf'=>$documento['documento_pdf'] ?? null,':pdf_nombre'=>$documento['documento_nombre'] ?? null,':pdf_fecha'=>$documento['documento_actualizado'] ?? null]);
+        }
+        // Certificaciones desmarcadas: su PDF ya no tiene a qué pertenecer.
+        foreach ($documentos as $documento) {
+            $this->eliminarDocumentoCertificacion((string)$documento['documento_pdf']);
         }
         service_return(['data'=>['id'=>$fincaId],'message'=>$existing ? 'Predio actualizado completamente con éxito.' : 'Predio registrado completamente con éxito.']);
+    }
+
+    private function eliminarDocumentoCertificacion(string $ruta): void
+    {
+        if (strpos($ruta, 'uploads/certificaciones/') === 0 && is_file($ruta)) {
+            @unlink($ruta);
+        }
+    }
+
+    public function saveCertificacionPdfWeb($data)
+    {
+        $fincaId = trim((string)($data['finca_id'] ?? ''));
+        $tipo = trim((string)($data['tipo'] ?? ''));
+        $archivoBase64 = (string)($data['archivo_base64'] ?? '');
+        $archivoNombre = basename(trim((string)($data['archivo_nombre'] ?? '')));
+        if ($fincaId === '' || $tipo === '' || $archivoBase64 === '' || $archivoNombre === '') {
+            service_return(['success'=>false,'message'=>'Selecciona el PDF de la certificación.','data'=>[]]);
+        }
+        $this->assertFincaAccesible($fincaId);
+        $certificacion = $this->model->queryPrepared(
+            "SELECT id,documento_pdf FROM predio_certificaciones WHERE finca_id=:finca AND tipo=:tipo AND vigente=1 LIMIT 1",
+            [':finca'=>$fincaId, ':tipo'=>$tipo]
+        );
+        if (!$certificacion) {
+            service_return(['success'=>false,'message'=>'La certificación no está registrada en el predio. Márcala y guarda el predio antes de adjuntar el PDF.','data'=>[]]);
+        }
+        if (strtolower((string)pathinfo($archivoNombre, PATHINFO_EXTENSION)) !== 'pdf') {
+            service_return(['success'=>false,'message'=>'El documento debe ser un archivo PDF.','data'=>[]]);
+        }
+        $binario = base64_decode($archivoBase64, true);
+        if ($binario === false || $binario === '') {
+            service_return(['success'=>false,'message'=>'El archivo adjunto no es válido.','data'=>[]]);
+        }
+        if (strlen($binario) > 5 * 1024 * 1024) {
+            service_return(['success'=>false,'message'=>'El PDF no puede superar 5 MB.','data'=>[]]);
+        }
+        if (strncmp($binario, '%PDF-', 5) !== 0) {
+            service_return(['success'=>false,'message'=>'El archivo seleccionado no es un PDF válido.','data'=>[]]);
+        }
+        $directorio = 'uploads/certificaciones';
+        if (!is_dir($directorio) && !@mkdir($directorio, 0775, true)) {
+            service_return(['success'=>false,'message'=>'No fue posible preparar la carpeta de documentos en el servidor.','data'=>[]]);
+        }
+        $ruta = $directorio . '/' . bin2hex(random_bytes(12)) . '.pdf';
+        if (file_put_contents($ruta, $binario) === false) {
+            service_return(['success'=>false,'message'=>'No fue posible guardar el PDF en el servidor.','data'=>[]]);
+        }
+        $now = date('Y-m-d H:i:s');
+        $nombre = mb_substr($archivoNombre, 0, 255);
+        $this->model->executePrepared(
+            "UPDATE predio_certificaciones SET documento_pdf=:pdf,documento_nombre=:nombre,documento_actualizado=:now WHERE id=:id",
+            [':pdf'=>$ruta, ':nombre'=>$nombre, ':now'=>$now, ':id'=>$certificacion[0]['id']]
+        );
+        // El PDF anterior se reemplaza: solo se borra cuando el nuevo ya quedó registrado.
+        $anterior = (string)($certificacion[0]['documento_pdf'] ?? '');
+        if ($anterior !== '' && $anterior !== $ruta) {
+            $this->eliminarDocumentoCertificacion($anterior);
+        }
+        service_return(['data'=>['documento_pdf'=>$ruta,'documento_nombre'=>$nombre,'documento_actualizado'=>$now],'message'=>$anterior !== '' ? 'PDF de la certificación reemplazado.' : 'PDF de la certificación cargado.']);
     }
 
     public function getTiposCertificacionWeb($data)
@@ -4643,7 +4739,7 @@ class AgronomoController extends ControllerBase
              FROM notificacion_destinatarios d
              JOIN notificaciones_mobile n ON n.id=d.notificacion_id
              WHERE d.usuario_id=:usuario AND d.confirmada_at IS NULL
-             ORDER BY n.created_at DESC LIMIT 20",
+             ORDER BY n.actualizacion_obligatoria DESC,n.created_at DESC LIMIT 20",
             [':usuario'=>$usuario]
         );
         service_return(['data'=>[

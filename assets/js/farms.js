@@ -1,4 +1,5 @@
-const farmState = { farms: [], selected: null, lots: [], crops: [], certificationTypes: [], assignableUsers: [], loaded: false, table: null };
+const farmState = { farms: [], selected: null, lots: [], crops: [], certificationTypes: [], assignableUsers: [], loaded: false, table: null, certificationDocs: {}, pendingCertificationPdfs: {} };
+const CERTIFICATION_PDF_MAX_BYTES = 5 * 1024 * 1024;
 const farmTableBody = document.querySelector('#farms-table-body');
 const farmDetail = document.querySelector('#farm-detail');
 const farmMessage = document.querySelector('#farm-message');
@@ -87,6 +88,26 @@ function renderFarmMetrics() {
   document.querySelector('#area-count').textContent = `${area.toLocaleString('es-CO', {maximumFractionDigits: 2})} ha`;
 }
 
+// alertas_detalle llega del servidor como "Documento: estado||Documento: estado".
+function farmAlertList(farm) {
+  return String(farm.alertas_detalle || '').split('||').map((item) => item.trim()).filter(Boolean);
+}
+
+// Paso del asistente donde se corrige la primera alerta: Legal (ICA/contrato)
+// o Certificaciones.
+function farmAlertStep(farm) {
+  return farmAlertList(farm).some((item) => /^(Registro ICA|Contrato de proveeduría):/.test(item)) ? 2 : 3;
+}
+
+function farmAlertBadge(farm, label, canEdit) {
+  const level = Number(farm.alertas_criticas || 0) ? 'critical' : 'warning';
+  const detail = farmAlertList(farm).join('\n');
+  const title = escapeFarmHtml(detail + (canEdit ? '\n\nClic para revisar' : ''));
+  return canEdit
+    ? `<button type="button" class="farm-alert-badge ${level}" data-farm-alerts="${escapeFarmHtml(farm.id)}" title="${title}">! ${label}</button>`
+    : `<span class="farm-alert-badge ${level}" title="${title}">! ${label}</span>`;
+}
+
 function renderFarmTable() {
   if (farmState.table) { farmState.table.destroy(); farmState.table = null; }
   const canEditFarm = farmCan('fincas.editar');
@@ -103,11 +124,12 @@ function renderFarmTable() {
         canEditFarm ? `<button type="button" class="row-menu-item" data-edit-farm="${escapeFarmHtml(farm.id)}">Asignar</button>` : '',
       ]),
     ].join('');
-    return `<tr><td><div class="farm-table-name"><strong>${escapeFarmHtml(farm.descripcion)}</strong><small>${farm.productor_id ? 'Predio completo' : 'Finca básica'}${alerts ? ` · <span class="farm-alert-badge ${criticalAlerts?'critical':'warning'}">! ${alerts} ${alerts===1?'alerta':'alertas'}</span>` : ''}</small></div></td><td><div class="farm-location-cell">${icon('pin')}${escapeFarmHtml(farm.ubicacion || 'Sin ubicación')}</div></td><td><div class="farm-directory-count"><strong>${Number(farm.total_lotes || 0)}</strong><span>lotes</span></div></td><td>${area ? `${area.toLocaleString('es-CO',{maximumFractionDigits:2})} ha` : '—'}</td><td>${responsibleCount ? `<div class="farm-responsibles"><strong>${responsibleCount} ${responsibleCount===1?'responsable':'responsables'}</strong><small>${escapeFarmHtml(farm.responsables || 'Equipo asignado')}</small></div>` : '<span class="no-assignment">Sin asignar</span>'}</td><td><span class="status-pill ${farm.voided==='1'?'active':'inactive'}">${farm.voided==='1'?'Activo':'Inactivo'}</span></td><td><div class="table-actions">${actions}</div></td></tr>`;
+    return `<tr><td><div class="farm-table-name"><strong>${escapeFarmHtml(farm.descripcion)}</strong><small>${farm.productor_id ? 'Predio completo' : 'Finca básica'}${alerts ? ` · ${farmAlertBadge(farm, `${alerts} ${alerts===1?'alerta':'alertas'}`, canEditFarm)}` : ''}</small></div></td><td><div class="farm-location-cell">${icon('pin')}${escapeFarmHtml(farm.ubicacion || 'Sin ubicación')}</div></td><td><div class="farm-directory-count"><strong>${Number(farm.total_lotes || 0)}</strong><span>lotes</span></div></td><td>${area ? `${area.toLocaleString('es-CO',{maximumFractionDigits:2})} ha` : '—'}</td><td>${responsibleCount ? `<div class="farm-responsibles"><strong>${responsibleCount} ${responsibleCount===1?'responsable':'responsables'}</strong><small>${escapeFarmHtml(farm.responsables || 'Equipo asignado')}</small></div>` : '<span class="no-assignment">Sin asignar</span>'}</td><td><span class="status-pill ${farm.voided==='1'?'active':'inactive'}">${farm.voided==='1'?'Activo':'Inactivo'}</span></td><td><div class="table-actions">${actions}</div></td></tr>`;
   }).join('');
   farmTableBody.querySelectorAll('[data-view-farm]').forEach((button) => button.onclick = () => { const farm=farmState.farms.find((item)=>item.id===button.dataset.viewFarm); if(farm)selectFarm(farm); });
   farmTableBody.querySelectorAll('[data-edit-farm]').forEach((button) => button.onclick = () => { const farm=farmState.farms.find((item)=>item.id===button.dataset.editFarm); if(farm)openFarmDialog(farm); });
   farmTableBody.querySelectorAll('[data-edit-property]').forEach((button) => button.onclick = () => { const farm=farmState.farms.find((item)=>item.id===button.dataset.editProperty); if(farm)openPropertyWizard(farm); });
+  farmTableBody.querySelectorAll('[data-farm-alerts]').forEach((button) => button.onclick = () => { const farm=farmState.farms.find((item)=>item.id===button.dataset.farmAlerts); if(farm)openPropertyWizard(farm, farmAlertStep(farm)); });
   farmTableBody.querySelectorAll('[data-toggle-farm]').forEach((button) => button.onclick = () => toggleFarm(button.dataset.toggleFarm));
   if (window.jQuery?.fn?.DataTable) {
     farmState.table = window.jQuery('#farms-table').DataTable({pageLength:25,lengthMenu:[[10,25,50,-1],[10,25,50,'Todas']],order:[[0,'asc']],autoWidth:false,columnDefs:[{targets:6,orderable:false,searchable:false}],dom:'<"dt-top"lf>rt<"dt-bottom"ip>',language:{emptyTable:'No hay fincas registradas',zeroRecords:'No se encontraron fincas',info:'Mostrando _START_ a _END_ de _TOTAL_',infoEmpty:'0 fincas',lengthMenu:'Mostrar _MENU_',search:'Buscar:',searchPlaceholder:'Nombre, ubicación o responsable…',paginate:{next:'Siguiente',previous:'Anterior'}}});
@@ -151,11 +173,12 @@ function renderFarmDetail() {
     canEditFarm ? `<button id="edit-farm-button" class="icon-button">Asignar usuarios</button>` : '',
   ].join('');
   farmDetail.innerHTML = `
-    <header class="farm-detail-header"><div><p class="eyebrow">${farm.productor_id ? 'Predio seleccionado' : 'Finca básica seleccionada'}</p><h2>${escapeFarmHtml(farm.descripcion)}</h2><p>${icon('pin')}${escapeFarmHtml(farm.ubicacion || 'Ubicación sin registrar')} · ${Number(farm.total_usuarios || 0)} ${Number(farm.total_usuarios || 0) === 1 ? 'usuario asignado' : 'usuarios asignados'}${Number(farm.total_alertas||0)?` · <span class="farm-alert-badge ${Number(farm.alertas_criticas||0)?'critical':'warning'}">! ${Number(farm.total_alertas)} alertas documentales</span>`:''}</p></div><div class="detail-actions">${detailActions}</div></header>
+    <header class="farm-detail-header"><div><p class="eyebrow">${farm.productor_id ? 'Predio seleccionado' : 'Finca básica seleccionada'}</p><h2>${escapeFarmHtml(farm.descripcion)}</h2><p>${icon('pin')}${escapeFarmHtml(farm.ubicacion || 'Ubicación sin registrar')} · ${Number(farm.total_usuarios || 0)} ${Number(farm.total_usuarios || 0) === 1 ? 'usuario asignado' : 'usuarios asignados'}${Number(farm.total_alertas||0)?` · ${farmAlertBadge(farm, `${Number(farm.total_alertas)} ${Number(farm.total_alertas)===1?'alerta documental':'alertas documentales'}`, canEditFarm)}`:''}</p></div><div class="detail-actions">${detailActions}</div></header>
     <div class="lot-heading"><div><p class="eyebrow">Distribución productiva</p><h3>${activeLots.length} lotes activos · ${farmState.lots.length} totales</h3></div>${canCreateLot ? `<button id="new-lot-button" class="primary-button compact-action"><span>+ Agregar lote</span></button>` : ''}</div>
     <div class="farm-lots-table">${farmState.lots.length ? `<table><thead><tr><th>Lote</th><th>Cultivo</th><th>Área</th><th>Visitas</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${farmState.lots.map((lot) => `<tr><td><strong>${escapeFarmHtml(lot.nombre)}</strong></td><td>${escapeFarmHtml(lot.cultivo || 'Sin identificar')}</td><td>${lot.hectareas ? `${Number(lot.hectareas).toLocaleString('es-CO')} ha` : '—'}</td><td><span class="visit-count-pill${Number(lot.total_visitas||0)===0?' zero':''}">${Number(lot.total_visitas||0)}</span></td><td><span class="status-pill ${lot.voided==='1'?'active':'inactive'}">${lot.voided==='1'?'Activo':'Inactivo'}</span></td><td><div class="table-actions">${canEditLot ? `<button class="table-action" data-edit-lot="${escapeFarmHtml(lot.id)}">Editar lote</button><button class="table-action table-action-toggle${lot.voided==='1'?' danger':''}" data-toggle-lot="${escapeFarmHtml(lot.id)}">${lot.voided==='1'?'Desactivar':'Activar'}</button>` : ''}</div></td></tr>`).join('')}</tbody></table>` : '<div class="lot-empty">Esta finca aún no tiene lotes. Agrega el primero para comenzar.</div>'}</div>`;
   document.querySelector('#edit-farm-button')?.addEventListener('click', () => openFarmDialog(farm));
   document.querySelector('#edit-property-button')?.addEventListener('click', () => openPropertyWizard(farm));
+  farmDetail.querySelector('[data-farm-alerts]')?.addEventListener('click', () => openPropertyWizard(farm, farmAlertStep(farm)));
   document.querySelector('#new-lot-button')?.addEventListener('click', () => openLotDialog());
   farmDetail.querySelectorAll('[data-edit-lot]').forEach((button) => button.addEventListener('click', () => openLotDialog(farmState.lots.find((lot) => lot.id === button.dataset.editLot))));
   farmDetail.querySelectorAll('[data-toggle-lot]').forEach((button) => button.addEventListener('click', () => toggleLot(button.dataset.toggleLot)));
@@ -378,8 +401,57 @@ function syncPropertyExpirationFields() {
     dateField.disabled=!checkbox.checked;
     dateField.required=checkbox.checked&&dateField.dataset.certificationExpiration==='1';
     dateField.closest('label')?.classList.toggle('expiration-required',dateField.required);
+    const pdfBox=document.querySelector(`#property-certifications [data-certification-pdf="${CSS.escape(checkbox.dataset.certificationCode)}"]`);
+    if(pdfBox)pdfBox.hidden=!checkbox.checked;
+  });
+  renderPropertyAlerts();
+}
+
+function propertyAlertStatus(dateValue) {
+  if (!dateValue) return {level:'pending', text:'sin fecha de vencimiento'};
+  const today = new Date(); today.setHours(0,0,0,0);
+  const days = Math.round((new Date(`${dateValue}T00:00:00`) - today) / 86400000);
+  if (days > 90) return null;
+  if (days < 0) return {level:'expired', text:`vencido hace ${-days} ${days===-1?'día':'días'}`};
+  if (days === 0) return {level:'critical', text:'vence hoy'};
+  return {level: days <= 30 ? 'critical' : 'warning', text:`vence en ${days} ${days===1?'día':'días'}`};
+}
+
+function renderPropertyAlerts() {
+  const form = document.querySelector('#property-form');
+  const alerts = [];
+  const check = (enabled, dateField, label, step) => {
+    const field = dateField?.closest('label');
+    field?.classList.remove('doc-alert','doc-alert-pending','doc-alert-expired','doc-alert-critical','doc-alert-warning');
+    if (!enabled) return;
+    const status = propertyAlertStatus(dateField?.value || '');
+    if (!status) return;
+    field?.classList.add('doc-alert', `doc-alert-${status.level}`);
+    alerts.push({label, step, ...status});
+  };
+  check(form.elements.namedItem('contrato')?.checked, form.elements.namedItem('fecha_vencimiento_contrato'), 'Contrato de proveeduría', 2);
+  check(form.elements.namedItem('ica')?.checked, form.elements.namedItem('vencimiento_ica'), 'Registro ICA', 2);
+  document.querySelectorAll('#property-certifications [data-certification-code]').forEach((checkbox) => {
+    const code = checkbox.dataset.certificationCode;
+    const name = farmState.certificationTypes.find((item) => item.codigo === code)?.nombre || code;
+    check(checkbox.checked, document.querySelector(`#property-certifications [data-certification-date="${CSS.escape(code)}"]`), name, 3);
+  });
+  const box = document.querySelector('#property-alerts');
+  box.hidden = !alerts.length;
+  box.innerHTML = alerts.length ? `<strong>${alerts.length} ${alerts.length===1?'alerta documental':'alertas documentales'}</strong><ul>${alerts.map((alert) => `<li><button type="button" class="doc-alert-item doc-alert-${alert.level}" data-alert-step="${alert.step}"><b>${escapeFarmHtml(alert.label)}</b>: ${escapeFarmHtml(alert.text)}</button></li>`).join('')}</ul><small>Actualiza la fecha de vencimiento o desmarca el documento si ya no aplica.</small>` : '';
+  document.querySelectorAll('.wizard-progress li').forEach((item) => {
+    const count = alerts.filter((alert) => alert.step === Number(item.dataset.propertyStep)).length;
+    item.classList.toggle('has-doc-alert', count > 0);
+    if (count) item.dataset.alertCount = count; else delete item.dataset.alertCount;
   });
 }
+
+document.querySelector('#property-alerts').addEventListener('click', (event) => {
+  const item = event.target.closest('[data-alert-step]');
+  if (!item) return;
+  propertyStep = Number(item.dataset.alertStep);
+  renderPropertyStep();
+});
 
 function currentPropertyCertifications() {
   const selected = {};
@@ -391,6 +463,84 @@ function currentPropertyCertifications() {
   return selected;
 }
 
+// PDF de soporte por certificación. Se elige en el formulario y se sube
+// después de guardar el predio (la certificación debe existir en el
+// servidor); al subir uno nuevo el servidor elimina el anterior.
+function certificationPdfHtml(code) {
+  const pending = farmState.pendingCertificationPdfs[code];
+  const current = farmState.certificationDocs[code];
+  const input = `<input type="file" accept="application/pdf,.pdf" hidden data-certification-pdf-input="${escapeFarmHtml(code)}">`;
+  if (pending) {
+    return `${input}<span class="cert-pdf-file pending" title="${escapeFarmHtml(pending.name)}">PDF ${escapeFarmHtml(pending.name)}</span><small>Se ${current ? 'reemplazará' : 'cargará'} al guardar el predio</small><button type="button" class="cert-pdf-action" data-certification-pdf-cancel="${escapeFarmHtml(code)}">Quitar</button>`;
+  }
+  if (current?.documento_pdf) {
+    return `${input}<a class="cert-pdf-file" href="${escapeFarmHtml(current.documento_pdf)}" target="_blank" rel="noopener" title="${escapeFarmHtml(current.documento_nombre || 'Ver PDF')}">Ver PDF</a><small>${escapeFarmHtml(current.documento_nombre || '')}</small><button type="button" class="cert-pdf-action" data-certification-pdf-pick="${escapeFarmHtml(code)}">Reemplazar</button>`;
+  }
+  return `${input}<button type="button" class="cert-pdf-action cert-pdf-upload" data-certification-pdf-pick="${escapeFarmHtml(code)}">+ Cargar PDF</button>`;
+}
+
+function refreshCertificationPdf(code) {
+  const box = document.querySelector(`#property-certifications [data-certification-pdf="${CSS.escape(code)}"]`);
+  if (box) box.innerHTML = certificationPdfHtml(code);
+}
+
+function readFarmFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('No fue posible leer el PDF seleccionado.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+document.querySelector('#property-certifications').addEventListener('click', (event) => {
+  const pick = event.target.closest('[data-certification-pdf-pick]');
+  const cancel = event.target.closest('[data-certification-pdf-cancel]');
+  if (!pick && !cancel) return;
+  // Los botones viven dentro del <label> de la tarjeta: evita que el clic
+  // marque o desmarque la certificación.
+  event.preventDefault();
+  if (pick) {
+    document.querySelector(`#property-certifications [data-certification-pdf-input="${CSS.escape(pick.dataset.certificationPdfPick)}"]`)?.click();
+  } else {
+    delete farmState.pendingCertificationPdfs[cancel.dataset.certificationPdfCancel];
+    refreshCertificationPdf(cancel.dataset.certificationPdfCancel);
+  }
+});
+
+document.querySelector('#property-certifications').addEventListener('change', (event) => {
+  const input = event.target.closest('[data-certification-pdf-input]');
+  if (!input) return;
+  event.stopPropagation();
+  const file = input.files?.[0];
+  const code = input.dataset.certificationPdfInput;
+  if (!file) return;
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const error = !isPdf ? 'El documento debe ser un archivo PDF.' : file.size > CERTIFICATION_PDF_MAX_BYTES ? 'El PDF no puede superar 5 MB.' : '';
+  if (error) {
+    input.value = '';
+    if (window.Swal) Swal.fire({icon:'error', title:'Archivo no válido', text:error, confirmButtonText:'Aceptar'}); else showFarmMessage(error);
+    return;
+  }
+  farmState.pendingCertificationPdfs[code] = file;
+  refreshCertificationPdf(code);
+});
+
+async function uploadPendingCertificationPdfs(fincaId, certs) {
+  const errors = [];
+  for (const [code, file] of Object.entries(farmState.pendingCertificationPdfs)) {
+    if (!certs[code]?.vigente) continue;
+    const name = farmState.certificationTypes.find((item) => item.codigo === code)?.nombre || code;
+    try {
+      await farmApi('saveCertificacionPdfWeb', {finca_id:fincaId, tipo:code, archivo_nombre:file.name, archivo_base64:await readFarmFileAsBase64(file)});
+    } catch (error) {
+      errors.push(`${name}: ${error.message}`);
+    }
+  }
+  farmState.pendingCertificationPdfs = {};
+  return errors;
+}
+
 function renderPropertyCertifications(existing = [], selectCode = '') {
   const selected = Array.isArray(existing) ? Object.fromEntries(existing.map((item)=>[item.tipo,{vigente:Number(item.vigente)===1,valido_hasta:item.valido_hasta||''}])) : existing;
   const selectedCodes = new Set(Object.keys(selected).filter((code)=>selected[code]?.vigente));
@@ -399,7 +549,7 @@ function renderPropertyCertifications(existing = [], selectCode = '') {
   const target = document.querySelector('#property-certifications');
   target.innerHTML = types.map((item)=>{
     const checked=selectedCodes.has(item.codigo), dateName=`certification_${item.codigo}_date`;
-    return `<label class="certification-option${Number(item.activo)===1?'':' inactive'}"><input type="checkbox" data-certification-code="${escapeFarmHtml(item.codigo)}" ${checked?'checked':''}><span>${escapeFarmHtml(item.nombre)}</span>${item.descripcion?`<small>${escapeFarmHtml(item.descripcion)}</small>`:''}<input name="${escapeFarmHtml(dateName)}" data-certification-date="${escapeFarmHtml(item.codigo)}" type="date" value="${escapeFarmHtml(selected[item.codigo]?.valido_hasta||'')}" ${Number(item.requiere_vencimiento)===1?'data-certification-expiration="1"':''}></label>`;
+    return `<label class="certification-option${Number(item.activo)===1?'':' inactive'}"><input type="checkbox" data-certification-code="${escapeFarmHtml(item.codigo)}" ${checked?'checked':''}><span>${escapeFarmHtml(item.nombre)}</span>${item.descripcion?`<small>${escapeFarmHtml(item.descripcion)}</small>`:''}<input name="${escapeFarmHtml(dateName)}" data-certification-date="${escapeFarmHtml(item.codigo)}" type="date" value="${escapeFarmHtml(selected[item.codigo]?.valido_hasta||'')}" ${Number(item.requiere_vencimiento)===1?'data-certification-expiration="1"':''}><div class="cert-pdf" data-certification-pdf="${escapeFarmHtml(item.codigo)}">${certificationPdfHtml(item.codigo)}</div></label>`;
   }).join('') || '<div class="certification-loading">No hay certificaciones disponibles.</div>';
   syncPropertyExpirationFields();
 }
@@ -413,11 +563,14 @@ window.refreshPropertyCertifications=refreshPropertyCertifications;
 
 document.querySelector('#property-form').addEventListener('change', (event) => {
   if (event.target.matches('[data-expiration-toggle],[data-certification-code]')) syncPropertyExpirationFields();
+  else if (event.target.type === 'date') renderPropertyAlerts();
 });
 
 async function openPropertyWizard(farm = null, initialStep = 0) {
   const form = document.querySelector('#property-form');
   form.reset();
+  farmState.certificationDocs = {};
+  farmState.pendingCertificationPdfs = {};
   syncPropertyExpirationFields();
   propertyStep = Math.max(0, Math.min(3, Number(initialStep) || 0));
   document.querySelector('#property-farm-id').value = farm?.id || '';
@@ -449,6 +602,7 @@ async function openPropertyWizard(farm = null, initialStep = 0) {
       await loadPropertyMunicipalities(predio.departamento_id, predio.municipio_id);
       if (predio.municipio_id) await loadPropertyLocalities(predio.municipio_id, predio.localidad_rural_id);
     }
+    farmState.certificationDocs = Object.fromEntries((detail.certificaciones || []).filter((item) => item.documento_pdf).map((item) => [item.tipo, item]));
     renderPropertyCertifications(detail.certificaciones || []);
     window.setTimeout(() => document.querySelector(`.wizard-step[data-step="${propertyStep}"] input:not([disabled]), .wizard-step[data-step="${propertyStep}"] select:not([disabled])`)?.focus(), 80);
   } catch (error) {
@@ -508,5 +662,12 @@ document.querySelector('#property-form').addEventListener('submit', async (event
     return;
   }
   const form=new FormData(event.currentTarget); const user=currentFarmUser(); const certs=currentPropertyCertifications();
-  try { const result=await farmApi('savePredioCompletoWeb',{finca_id:form.get('finca_id')||'',created_by:user.id||'',productor:{tipo:form.get('tipo'),nombre:form.get('productor_nombre'),cedula:form.get('cedula'),nit:form.get('nit'),dv:form.get('dv'),telefono:form.get('telefono'),correo:form.get('correo')},predio:{descripcion:form.get('predio_nombre'),departamento_id:form.get('departamento_id'),municipio_id:form.get('municipio_id'),localidad_rural_id:form.get('localidad_rural_id'),estado_predio:form.get('estado'),hectareas_totales:form.get('hectareas'),latitud:form.get('latitud'),longitud:form.get('longitud'),url_localizacion:form.get('url'),contrato_proveeduria:form.has('contrato'),fecha_contrato:form.get('fecha_contrato'),fecha_vencimiento_contrato:form.get('fecha_vencimiento_contrato'),version_contrato:form.get('version_contrato'),registro_ica:form.has('ica'),numero_ica:form.get('numero_ica'),vencimiento_ica:form.get('vencimiento_ica'),anticipo:form.has('anticipo'),valor_anticipo:form.get('valor_anticipo')},certificaciones:certs}); document.querySelector('#property-dialog').close(); closeFarmDetail(); await loadFarms(true); if(window.Swal) Swal.fire({icon:'success',title:'Predio guardado',text:result?.message || 'La información quedó actualizada.',confirmButtonText:'Aceptar'}); } catch(error){showFarmMessage(error.message); if(window.Swal) Swal.fire({icon:'error',title:'No fue posible guardar',text:error.message,confirmButtonText:'Aceptar'});}
+  const saveButton=document.querySelector('#wizard-save'); saveButton.disabled=true;
+  try { const result=await farmApi('savePredioCompletoWeb',{finca_id:form.get('finca_id')||'',created_by:user.id||'',productor:{tipo:form.get('tipo'),nombre:form.get('productor_nombre'),cedula:form.get('cedula'),nit:form.get('nit'),dv:form.get('dv'),telefono:form.get('telefono'),correo:form.get('correo')},predio:{descripcion:form.get('predio_nombre'),departamento_id:form.get('departamento_id'),municipio_id:form.get('municipio_id'),localidad_rural_id:form.get('localidad_rural_id'),estado_predio:form.get('estado'),hectareas_totales:form.get('hectareas'),latitud:form.get('latitud'),longitud:form.get('longitud'),url_localizacion:form.get('url'),contrato_proveeduria:form.has('contrato'),fecha_contrato:form.get('fecha_contrato'),fecha_vencimiento_contrato:form.get('fecha_vencimiento_contrato'),version_contrato:form.get('version_contrato'),registro_ica:form.has('ica'),numero_ica:form.get('numero_ica'),vencimiento_ica:form.get('vencimiento_ica'),anticipo:form.has('anticipo'),valor_anticipo:form.get('valor_anticipo')},certificaciones:certs});
+    const pdfErrors = await uploadPendingCertificationPdfs(result?.id || form.get('finca_id'), certs);
+    document.querySelector('#property-dialog').close(); closeFarmDetail(); await loadFarms(true);
+    if (pdfErrors.length) { if(window.Swal) Swal.fire({icon:'warning',title:'Predio guardado, pero faltan PDF',text:`No fue posible cargar: ${pdfErrors.join(' · ')}. Abre el predio y vuelve a intentarlo.`,confirmButtonText:'Aceptar'}); else showFarmMessage(pdfErrors.join(' · ')); }
+    else if(window.Swal) Swal.fire({icon:'success',title:'Predio guardado',text:result?.message || 'La información quedó actualizada.',confirmButtonText:'Aceptar'});
+  } catch(error){showFarmMessage(error.message); if(window.Swal) Swal.fire({icon:'error',title:'No fue posible guardar',text:error.message,confirmButtonText:'Aceptar'});}
+  finally { saveButton.disabled = false; }
 });

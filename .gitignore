@@ -10,3 +10,8 @@
 # Archivos del cliente, cargas generadas y credenciales provisionales (datos personales)
 resources/
 __pycache__/
+!database/migrations/035_certificacion_documento_pdf.sql
+!database/rollbacks/035_certificacion_documento_pdf.sql
+
+# Documentos PDF de certificaciones subidos por los clientes
+uploads/certificaciones/

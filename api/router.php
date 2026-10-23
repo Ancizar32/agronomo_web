@@ -45,7 +45,7 @@ final class AgronomoApiRouter
         'createCategoriaLabor' => true, 'getCategoriasLabor' => true,
         'getFincasWeb' => true, 'getFincaDetalleWeb' => true, 'getUsuariosFincaWeb' => true,
         'saveFincaWeb' => true, 'saveLoteWeb' => true, 'toggleFincaWeb' => true, 'toggleLoteWeb' => true,
-        'savePredioCompletoWeb' => true,
+        'savePredioCompletoWeb' => true, 'saveCertificacionPdfWeb' => true,
         'getTiposCertificacionWeb' => true, 'saveTipoCertificacionWeb' => true, 'toggleTipoCertificacionWeb' => true,
         'getCultivosWeb' => true, 'saveCultivoWeb' => true, 'toggleCultivoWeb' => true,
         'getLaboresWeb' => true, 'saveLaborWeb' => true, 'toggleLaborWeb' => true,
@@ -88,7 +88,7 @@ final class AgronomoApiRouter
 
         require_once dirname(__DIR__) . '/controller/agronomo.controller.php';
         $instance = new AgronomoController();
-        $webMethods = ['getFincasWeb','getFincaDetalleWeb','saveFincaWeb','toggleFincaWeb','saveLoteWeb','toggleLoteWeb','savePredioCompletoWeb','getTiposCertificacionWeb','saveTipoCertificacionWeb','toggleTipoCertificacionWeb','getDivisionTerritorialWeb','getAdministracionWeb','saveUsuarioWeb','toggleUsuarioWeb','resetUsuarioPasswordWeb','saveRolWeb','deleteRolWeb','getCultivosWeb','saveCultivoWeb','toggleCultivoWeb','getLaboresWeb','saveLaborWeb','toggleLaborWeb','getCategoriasLaborWeb','saveCategoriaLaborWeb','toggleCategoriaLaborWeb','getInsumosFormulasWeb','saveInsumoWeb','toggleInsumoWeb','saveFormulaWeb','toggleFormulaWeb','getRecomendacionesWeb','saveRecomendacionWeb','toggleRecomendacionWeb','getVisitasWeb','getVisitaDetalleWeb','getFirmaTecnicoWeb','getEquipoTecnicoWeb','getResumenWeb','getConfiguracionUsuarioWeb','saveConfiguracionUsuarioWeb','getAgendaVisitasWeb','saveAgendaVisitaWeb','cambiarEstadoAgendaVisitaWeb','getPlanesCosechaWeb','getPlanCosechaDetalleWeb','savePlanCosechaWeb','saveCosechaRealWeb','anularCosechaRealWeb','getReportesExcelWeb','saveReporteExcelWeb','toggleReporteExcelWeb','getReportQueriesWeb','saveReportQueryWeb','toggleReportQueryWeb','previewReportQueryWeb','getSchemaTablesWeb','getSchemaColumnsWeb','getApiClientesWeb','saveApiClienteWeb','toggleApiClienteWeb','getApiClienteReportesWeb','saveApiClienteReportesWeb','getNotificacionesWeb','sendNotificacionWeb','retryNotificacionPushWeb'];
+        $webMethods = ['getFincasWeb','getFincaDetalleWeb','saveFincaWeb','toggleFincaWeb','saveLoteWeb','toggleLoteWeb','savePredioCompletoWeb','saveCertificacionPdfWeb','getTiposCertificacionWeb','saveTipoCertificacionWeb','toggleTipoCertificacionWeb','getDivisionTerritorialWeb','getAdministracionWeb','saveUsuarioWeb','toggleUsuarioWeb','resetUsuarioPasswordWeb','saveRolWeb','deleteRolWeb','getCultivosWeb','saveCultivoWeb','toggleCultivoWeb','getLaboresWeb','saveLaborWeb','toggleLaborWeb','getCategoriasLaborWeb','saveCategoriaLaborWeb','toggleCategoriaLaborWeb','getInsumosFormulasWeb','saveInsumoWeb','toggleInsumoWeb','saveFormulaWeb','toggleFormulaWeb','getRecomendacionesWeb','saveRecomendacionWeb','toggleRecomendacionWeb','getVisitasWeb','getVisitaDetalleWeb','getFirmaTecnicoWeb','getEquipoTecnicoWeb','getResumenWeb','getConfiguracionUsuarioWeb','saveConfiguracionUsuarioWeb','getAgendaVisitasWeb','saveAgendaVisitaWeb','cambiarEstadoAgendaVisitaWeb','getPlanesCosechaWeb','getPlanCosechaDetalleWeb','savePlanCosechaWeb','saveCosechaRealWeb','anularCosechaRealWeb','getReportesExcelWeb','saveReporteExcelWeb','toggleReporteExcelWeb','getReportQueriesWeb','saveReportQueryWeb','toggleReportQueryWeb','previewReportQueryWeb','getSchemaTablesWeb','getSchemaColumnsWeb','getApiClientesWeb','saveApiClienteWeb','toggleApiClienteWeb','getApiClienteReportesWeb','saveApiClienteReportesWeb','getNotificacionesWeb','sendNotificacionWeb','retryNotificacionPushWeb'];
         // Un 401 (sesión inexistente) es un caso distinto de un 403 (sesión
         // válida pero sin el permiso). Antes ambos devolvían el mismo 403
         // "No tienes permiso para realizar esta acción" — dejaba al usuario
@@ -114,6 +114,7 @@ final class AgronomoApiRouter
             'saveLoteWeb' => ['lotes', empty($data['id']) ? 'crear' : 'editar'],
             'toggleLoteWeb' => ['lotes', 'editar'],
             'savePredioCompletoWeb' => ['fincas', empty($data['finca_id']) ? 'crear' : 'editar'],
+            'saveCertificacionPdfWeb' => ['fincas', 'editar'],
             'getTiposCertificacionWeb' => ['certificaciones', 'ver'],
             'saveTipoCertificacionWeb' => ['certificaciones', empty($data['codigo_original']) ? 'crear' : 'editar'],
             'toggleTipoCertificacionWeb' => ['certificaciones', 'editar'],

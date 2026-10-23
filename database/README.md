@@ -27,6 +27,9 @@ La migración `028_catalogo_certificaciones.sql` convierte las certificaciones
 fijas del predio en un catálogo administrable y conserva los registros previos.
 La migración `034_catalogos_carga_predios.sql` agrega el tipo de productor
 AGROJAR y los estados fenológicos PODA y DESCANSO que usa el cliente.
+La migración `035_certificacion_documento_pdf.sql` permite adjuntar un PDF de
+soporte a cada certificación del predio. Los archivos se guardan en
+`uploads/certificaciones/`, que debe existir con permisos de escritura para PHP.
 
 ## Carga inicial desde el Excel del cliente
 

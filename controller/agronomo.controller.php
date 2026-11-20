@@ -8,6 +8,8 @@ use function InduSoft\crearSentenciaSelect;
 use function InduSoft\crearSentenciaUpdate;
 use function InduSoft\uniqueId;
 
+require_once dirname(__DIR__) . '/lib/mobile_auth_trace.php';
+
 class AgronomoController extends ControllerBase
 {
 
@@ -123,6 +125,9 @@ class AgronomoController extends ControllerBase
                     ':created_at'=>$tokenCreatedAt,
                 ]
             );
+        }
+        if ($apiToken !== null) {
+            MobileAuthTrace::write('token_emitido', $apiToken, ['usuario_id'=>(string)$userRow['id'], 'usuario'=>$username, 'vence'=>$tokenExpiresAt]);
         }
         // La respuesta de autenticación nunca debe exponer la contraseña ni
         // columnas internas de la tabla user al navegador o a la app móvil.
@@ -391,7 +396,10 @@ class AgronomoController extends ControllerBase
 
     public function authenticateMobileToken(string $token): ?string
     {
-        if ($token === '') return null;
+        if ($token === '') {
+            MobileAuthTrace::write('rechazado', $token, ['motivo'=>'token_ausente']);
+            return null;
+        }
         $rows = $this->model->queryPrepared(
             "SELECT t.id,t.user_id
              FROM auth_tokens t JOIN `user` u ON u.id=t.user_id
@@ -399,7 +407,32 @@ class AgronomoController extends ControllerBase
                AND t.expires_at>:ahora AND u.void='1' LIMIT 1",
             [':hash'=>hash('sha256', $token), ':ahora'=>date('Y-m-d H:i:s')]
         );
-        if (!$rows) return null;
+        if (!$rows) {
+            // El diagnóstico nunca cambia la decisión de autenticación.
+            try {
+                $diagnostic = $this->model->queryPrepared(
+                    "SELECT t.id,t.user_id,t.revoked_at,t.expires_at,u.void
+                     FROM auth_tokens t LEFT JOIN `user` u ON u.id=t.user_id
+                     WHERE t.token_hash=:hash LIMIT 1",
+                    [':hash'=>hash('sha256', $token)]
+                );
+                $session = $diagnostic[0] ?? null;
+                $reason = !$session ? 'token_desconocido'
+                    : ($session['revoked_at'] !== null ? 'token_revocado'
+                    : ((string)($session['void'] ?? '') !== '1' ? 'usuario_inactivo_o_inexistente'
+                    : ($session['expires_at'] <= date('Y-m-d H:i:s') ? 'token_vencido' : 'no_validado')));
+                MobileAuthTrace::write('rechazado', $token, [
+                    'motivo'=>$reason, 'sesion_id'=>$session['id'] ?? null,
+                    'usuario_id'=>$session['user_id'] ?? null,
+                    'revocada'=>$session['revoked_at'] ?? null,
+                    'vence'=>$session['expires_at'] ?? null,
+                ]);
+            } catch (Throwable $error) {
+                MobileAuthTrace::write('rechazado', $token, ['motivo'=>'diagnostico_no_disponible']);
+            }
+            return null;
+        }
+        MobileAuthTrace::write('aceptado', $token, ['sesion_id'=>$rows[0]['id'], 'usuario_id'=>$rows[0]['user_id']]);
         $this->model->executePrepared(
             "UPDATE auth_tokens SET last_used_at=:ahora WHERE id=:id",
             [':id'=>$rows[0]['id'], ':ahora'=>date('Y-m-d H:i:s')]

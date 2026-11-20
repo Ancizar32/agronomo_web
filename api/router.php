@@ -87,6 +87,7 @@ final class AgronomoApiRouter
         }
 
         require_once dirname(__DIR__) . '/controller/agronomo.controller.php';
+        MobileAuthTrace::setContext($method, $data['id'] ?? null);
         $instance = new AgronomoController();
         $webMethods = ['getFincasWeb','getFincaDetalleWeb','saveFincaWeb','toggleFincaWeb','saveLoteWeb','toggleLoteWeb','savePredioCompletoWeb','saveCertificacionPdfWeb','getTiposCertificacionWeb','saveTipoCertificacionWeb','toggleTipoCertificacionWeb','getDivisionTerritorialWeb','getAdministracionWeb','saveUsuarioWeb','toggleUsuarioWeb','resetUsuarioPasswordWeb','saveRolWeb','deleteRolWeb','getCultivosWeb','saveCultivoWeb','toggleCultivoWeb','getLaboresWeb','saveLaborWeb','toggleLaborWeb','getCategoriasLaborWeb','saveCategoriaLaborWeb','toggleCategoriaLaborWeb','getInsumosFormulasWeb','saveInsumoWeb','toggleInsumoWeb','saveFormulaWeb','toggleFormulaWeb','getRecomendacionesWeb','saveRecomendacionWeb','toggleRecomendacionWeb','getVisitasWeb','getVisitaDetalleWeb','getFirmaTecnicoWeb','getEquipoTecnicoWeb','getResumenWeb','getConfiguracionUsuarioWeb','saveConfiguracionUsuarioWeb','getAgendaVisitasWeb','saveAgendaVisitaWeb','cambiarEstadoAgendaVisitaWeb','getPlanesCosechaWeb','getPlanCosechaDetalleWeb','savePlanCosechaWeb','saveCosechaRealWeb','anularCosechaRealWeb','getReportesExcelWeb','saveReporteExcelWeb','toggleReporteExcelWeb','getReportQueriesWeb','saveReportQueryWeb','toggleReportQueryWeb','previewReportQueryWeb','getSchemaTablesWeb','getSchemaColumnsWeb','getApiClientesWeb','saveApiClienteWeb','toggleApiClienteWeb','getApiClienteReportesWeb','saveApiClienteReportesWeb','getNotificacionesWeb','sendNotificacionWeb','retryNotificacionPushWeb'];
         // Un 401 (sesión inexistente) es un caso distinto de un 403 (sesión
@@ -269,9 +270,17 @@ final class AgronomoApiRouter
             $header = (string)($headers['Authorization'] ?? $headers['authorization'] ?? '');
         }
         if (preg_match('/^Bearer\s+(.+)$/i', trim($header), $matches)) {
-            return trim($matches[1]);
+            $token = trim($matches[1]);
+            MobileAuthTrace::write('token_recibido', $token, [
+                'origen'=>'authorization',
+                'token_cuerpo_presente'=>!empty($data['_api_token']),
+                'coincide_con_cuerpo'=>isset($data['_api_token']) ? hash_equals($token, trim((string)$data['_api_token'])) : null,
+            ]);
+            return $token;
         }
-        return trim((string)($data['_api_token'] ?? ''));
+        $token = trim((string)($data['_api_token'] ?? ''));
+        MobileAuthTrace::write('token_recibido', $token, ['origen'=>$token === '' ? 'ausente' : 'cuerpo', 'cabecera_presente'=>$header !== '']);
+        return $token;
     }
 
     private function respond(bool $success, string $message, array $detail, int $status): void

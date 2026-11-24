@@ -13,6 +13,9 @@ require_once dirname(__DIR__) . '/lib/mobile_auth_trace.php';
 class AgronomoController extends ControllerBase
 {
 
+    // Días sin uso tras los cuales vence la sesión móvil (vencimiento deslizante).
+    private const MOBILE_TOKEN_IDLE_DAYS = 90;
+
     private $model;
     private $liveSession = null;
 
@@ -93,29 +96,35 @@ class AgronomoController extends ControllerBase
         if (strtolower(trim((string)($data['client_type'] ?? ''))) === 'mobile') {
             $apiToken = bin2hex(random_bytes(32));
             $tokenCreatedAt = date('Y-m-d H:i:s');
-            $tokenExpiresAt = date('Y-m-d H:i:s', strtotime('+30 days'));
+            $tokenExpiresAt = date('Y-m-d H:i:s', strtotime('+' . self::MOBILE_TOKEN_IDLE_DAYS . ' days'));
             $tokenDeviceName = substr(trim((string)($data['device_name'] ?? 'App móvil')), 0, 120);
             $tokenPlatform = substr(trim((string)($data['platform'] ?? '')), 0, 20);
-            // Solo se reemplaza la sesión anterior del mismo dispositivo. Un
-            // usuario puede trabajar simultáneamente desde Android e iOS.
+            $tokenInstallationId = substr(trim((string)($data['installation_id'] ?? '')), 0, 64);
+            // Solo se reemplaza la sesión anterior de la MISMA instalación.
+            // device_name es el modelo del equipo y no es único: revocar por
+            // él hacía que dos equipos iguales (o dos simuladores) se sacaran
+            // mutuamente. Versiones antiguas sin installation_id no revocan
+            // nada; sus tokens previos vencen solos o con logout explícito.
+            if ($tokenInstallationId !== '') {
+                $this->model->executePrepared(
+                    "UPDATE auth_tokens SET revoked_at=:ahora
+                     WHERE user_id=:usuario AND installation_id=:instalacion
+                       AND revoked_at IS NULL",
+                    [
+                        ':ahora'=>$tokenCreatedAt,
+                        ':usuario'=>(string)$userRow['id'],
+                        ':instalacion'=>$tokenInstallationId,
+                    ]
+                );
+            }
             $this->model->executePrepared(
-                "UPDATE auth_tokens SET revoked_at=:ahora
-                 WHERE user_id=:usuario AND device_name=:dispositivo
-                   AND platform=:platform AND revoked_at IS NULL",
-                [
-                    ':ahora'=>$tokenCreatedAt,
-                    ':usuario'=>(string)$userRow['id'],
-                    ':dispositivo'=>$tokenDeviceName,
-                    ':platform'=>$tokenPlatform,
-                ]
-            );
-            $this->model->executePrepared(
-                "INSERT INTO auth_tokens(user_id,token_hash,device_name,app_version,build_number,platform,os_version,ip_address,expires_at,created_at)
-                 VALUES(:usuario,:hash,:dispositivo,:app_version,:build_number,:platform,:os_version,:ip,:expires_at,:created_at)",
+                "INSERT INTO auth_tokens(user_id,token_hash,device_name,installation_id,app_version,build_number,platform,os_version,ip_address,expires_at,created_at)
+                 VALUES(:usuario,:hash,:dispositivo,:instalacion,:app_version,:build_number,:platform,:os_version,:ip,:expires_at,:created_at)",
                 [
                     ':usuario'=>(string)$userRow['id'],
                     ':hash'=>hash('sha256', $apiToken),
                     ':dispositivo'=>$tokenDeviceName,
+                    ':instalacion'=>$tokenInstallationId !== '' ? $tokenInstallationId : null,
                     ':app_version'=>substr(trim((string)($data['app_version'] ?? '')), 0, 30),
                     ':build_number'=>substr(trim((string)($data['build_number'] ?? '')), 0, 20),
                     ':platform'=>$tokenPlatform,
@@ -433,9 +442,15 @@ class AgronomoController extends ControllerBase
             return null;
         }
         MobileAuthTrace::write('aceptado', $token, ['sesion_id'=>$rows[0]['id'], 'usuario_id'=>$rows[0]['user_id']]);
+        // Vencimiento deslizante: mientras la app se use, la sesión sigue
+        // vigente. Solo expira tras MOBILE_TOKEN_IDLE_DAYS sin actividad.
         $this->model->executePrepared(
-            "UPDATE auth_tokens SET last_used_at=:ahora WHERE id=:id",
-            [':id'=>$rows[0]['id'], ':ahora'=>date('Y-m-d H:i:s')]
+            "UPDATE auth_tokens SET last_used_at=:ahora, expires_at=:vence WHERE id=:id",
+            [
+                ':id'=>$rows[0]['id'],
+                ':ahora'=>date('Y-m-d H:i:s'),
+                ':vence'=>date('Y-m-d H:i:s', strtotime('+' . self::MOBILE_TOKEN_IDLE_DAYS . ' days')),
+            ]
         );
         return (string)$rows[0]['user_id'];
     }
@@ -4766,12 +4781,19 @@ class AgronomoController extends ControllerBase
         $version = $this->model->queryPrepared(
             "SELECT version,motivo,obligatoria,updated_at FROM mobile_data_version WHERE id=1", []
         );
+        // Compatibilidad con apps cuyo diálogo obligatorio no permite salir
+        // cuando quedan envíos locales pendientes. La solicitud se mantiene en
+        // la bandeja y solo completeMobileDataUpdate confirma la descarga.
+        // Al pulsar Continuar la app marca leído: no volver a bloquear por sondeo.
         $notificaciones = $this->model->queryPrepared(
-            "SELECT n.id,n.titulo,n.mensaje,n.requiere_actualizacion,n.actualizacion_obligatoria,
+            "SELECT n.id,n.titulo,n.mensaje,n.requiere_actualizacion,
+                    CASE WHEN n.requiere_actualizacion=1 THEN 0
+                         ELSE n.actualizacion_obligatoria END AS actualizacion_obligatoria,
                     n.data_version,n.created_at,d.leida_at,d.confirmada_at
              FROM notificacion_destinatarios d
              JOIN notificaciones_mobile n ON n.id=d.notificacion_id
              WHERE d.usuario_id=:usuario AND d.confirmada_at IS NULL
+               AND (n.requiere_actualizacion=0 OR d.leida_at IS NULL)
              ORDER BY n.actualizacion_obligatoria DESC,n.created_at DESC LIMIT 20",
             [':usuario'=>$usuario]
         );

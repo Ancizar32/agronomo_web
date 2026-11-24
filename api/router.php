@@ -218,7 +218,8 @@ final class AgronomoApiRouter
             // La autoría nunca se acepta desde el JSON del dispositivo.
             $data['created_by'] = $mobileUserId;
             if ($method !== 'createConfiguracion' && !$instance->canMobileMutation($mobileUserId, $method, $data)) {
-                $this->respond(false, 'Permiso revocado. Tu usuario ya no tiene autorización para realizar esta acción.', ['permission_denied'=>true,'method'=>$method], 403);
+                MobileAuthTrace::write('permiso_insuficiente', $token, ['usuario_id'=>$mobileUserId]);
+                $this->respond(false, 'Tu rol no tiene el permiso necesario para enviar este registro. Solicita al administrador revisar los permisos del módulo. Tus datos siguen guardados en el dispositivo.', ['permission_denied'=>true,'method'=>$method], 403);
             }
         }
         if ($method === 'getAdministracionWeb' && !$instance->canWeb('usuarios', 'ver') && !$instance->canWeb('roles', 'ver')) {

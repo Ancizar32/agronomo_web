@@ -403,9 +403,19 @@ class AgronomoController extends ControllerBase
         return $formula;
     }
 
+    /** Motivo del último rechazo de authenticateMobileToken (para la app). */
+    private $mobileAuthFailureReason = null;
+
+    public function mobileAuthFailureReason(): string
+    {
+        return $this->mobileAuthFailureReason ?? 'no_validado';
+    }
+
     public function authenticateMobileToken(string $token): ?string
     {
+        $this->mobileAuthFailureReason = null;
         if ($token === '') {
+            $this->mobileAuthFailureReason = 'token_ausente';
             MobileAuthTrace::write('rechazado', $token, ['motivo'=>'token_ausente']);
             return null;
         }
@@ -430,6 +440,7 @@ class AgronomoController extends ControllerBase
                     : ($session['revoked_at'] !== null ? 'token_revocado'
                     : ((string)($session['void'] ?? '') !== '1' ? 'usuario_inactivo_o_inexistente'
                     : ($session['expires_at'] <= date('Y-m-d H:i:s') ? 'token_vencido' : 'no_validado')));
+                $this->mobileAuthFailureReason = $reason;
                 MobileAuthTrace::write('rechazado', $token, [
                     'motivo'=>$reason, 'sesion_id'=>$session['id'] ?? null,
                     'usuario_id'=>$session['user_id'] ?? null,
@@ -437,6 +448,7 @@ class AgronomoController extends ControllerBase
                     'vence'=>$session['expires_at'] ?? null,
                 ]);
             } catch (Throwable $error) {
+                $this->mobileAuthFailureReason = 'diagnostico_no_disponible';
                 MobileAuthTrace::write('rechazado', $token, ['motivo'=>'diagnostico_no_disponible']);
             }
             return null;
@@ -453,6 +465,128 @@ class AgronomoController extends ControllerBase
             ]
         );
         return (string)$rows[0]['user_id'];
+    }
+
+    // =====================================================================
+    // SQL PREPARADO PARA ALTAS/EDICIONES SINCRONIZADAS
+    // Reemplazan a crearSentenciaInsert/Update/Select, que interpolaban los
+    // valores del dispositivo (inyección SQL, apóstrofos que rompían el
+    // insert) y convertían null en '' (fechas 0000-00-00 en MySQL no
+    // estricto). Las columnas se validan contra information_schema y los
+    // valores siempre viajan como parámetros.
+    // =====================================================================
+
+    private static $tableColumnsCache = [];
+
+    private function tableColumns(string $table): array
+    {
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+            throw new InvalidArgumentException('Tabla no válida: ' . $table);
+        }
+        if (!isset(self::$tableColumnsCache[$table])) {
+            $rows = $this->model->queryPrepared(
+                "SELECT COLUMN_NAME AS col, DATA_TYPE AS tipo, IS_NULLABLE AS nulo
+                 FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=:tabla",
+                [':tabla'=>$table]
+            );
+            $columns = [];
+            foreach ($rows as $row) {
+                $row = (array)$row;
+                $columns[(string)$row['col']] = [
+                    'tipo'=>strtolower((string)$row['tipo']),
+                    'nulo'=>strtoupper((string)$row['nulo']) === 'YES',
+                ];
+            }
+            if (!$columns) {
+                throw new RuntimeException('La tabla no existe: ' . $table);
+            }
+            self::$tableColumnsCache[$table] = $columns;
+        }
+        return self::$tableColumnsCache[$table];
+    }
+
+    private function sqlParamValue(array $meta, $value)
+    {
+        if (is_bool($value)) $value = $value ? '1' : '0';
+        if (is_array($value) || is_object($value)) {
+            $value = json_encode($value, JSON_UNESCAPED_UNICODE);
+        }
+        $textTypes = ['char','varchar','text','tinytext','mediumtext','longtext','enum','set','json'];
+        $isEmpty = $value === null || (is_string($value) && trim($value) === '');
+        if ($isEmpty && $meta['nulo'] && ($value === null || !in_array($meta['tipo'], $textTypes, true))) {
+            // Fechas/números vacíos opcionales => NULL real, nunca 0000-00-00.
+            return null;
+        }
+        // Columnas NOT NULL conservan el comportamiento anterior ('').
+        return $value === null ? '' : $value;
+    }
+
+    /** @return array{0:string,1:array} fragmento "`col`=:p0 AND ..." y parámetros */
+    private function sqlPairs(string $table, array $pairs, string $prefix, string $glue): array
+    {
+        $columns = $this->tableColumns($table);
+        $parts = [];
+        $params = [];
+        $i = 0;
+        foreach ($pairs as $column => $value) {
+            $column = (string)$column;
+            if (!isset($columns[$column])) continue;
+            $param = ':' . $prefix . $i++;
+            $parts[] = "`{$column}`={$param}";
+            $params[$param] = $this->sqlParamValue($columns[$column], $value);
+        }
+        return [implode($glue, $parts), $params];
+    }
+
+    private function preparedSelect(array $param): array
+    {
+        $table = (string)($param['tabla'] ?? '');
+        [$where, $params] = $this->sqlPairs($table, (array)($param['where'] ?? []), 'w', ' AND ');
+        if ($where === '') {
+            throw new InvalidArgumentException('Consulta sin condición sobre ' . $table);
+        }
+        return $this->model->queryPrepared("SELECT * FROM `{$table}` WHERE {$where}", $params);
+    }
+
+    private function preparedInsert(array $param): void
+    {
+        $table = (string)($param['tabla'] ?? '');
+        $columns = $this->tableColumns($table);
+        $names = [];
+        $holders = [];
+        $params = [];
+        $i = 0;
+        foreach ((array)($param['conten'] ?? []) as $column => $value) {
+            $column = (string)$column;
+            // Claves que no son columnas (token, metadatos) se ignoran.
+            if (!isset($columns[$column])) continue;
+            $holder = ':v' . $i++;
+            $names[] = "`{$column}`";
+            $holders[] = $holder;
+            $params[$holder] = $this->sqlParamValue($columns[$column], $value);
+        }
+        if (!$names) {
+            throw new InvalidArgumentException('Inserción sin columnas válidas en ' . $table);
+        }
+        $this->model->executePrepared(
+            "INSERT INTO `{$table}` (" . implode(',', $names) . ") VALUES (" . implode(',', $holders) . ")",
+            $params
+        );
+    }
+
+    private function preparedUpdate(array $param): void
+    {
+        $table = (string)($param['tabla'] ?? '');
+        [$sets, $setParams] = $this->sqlPairs($table, (array)($param['sets'] ?? []), 's', ',');
+        [$where, $whereParams] = $this->sqlPairs($table, (array)($param['where'] ?? []), 'w', ' AND ');
+        if ($sets === '' || $where === '') {
+            throw new InvalidArgumentException('Actualización incompleta sobre ' . $table);
+        }
+        $this->model->executePrepared(
+            "UPDATE `{$table}` SET {$sets} WHERE {$where}",
+            array_merge($setParams, $whereParams)
+        );
     }
 
     public function logoutMobile(array $data): void
@@ -560,8 +694,7 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'user', 'where' => $where]);
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'user', 'where' => $where]);
         $success = false;
         if (empty($data_select)) {
             $msg = "Usuario no existe o esta incorrecto";
@@ -577,10 +710,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'user', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'user', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'Password actualizado con éxito!';
         }
 
@@ -622,8 +752,7 @@ class AgronomoController extends ControllerBase
         }
 
         $where_check['user'] = $data['user'];
-        $sql_check = crearSentenciaSelect(['tabla' => 'user', 'where' => $where_check]);
-        $existing = $a->executeScript(['sql' => $sql_check]);
+        $existing = $this->preparedSelect(['tabla' => 'user', 'where' => $where_check]);
 
         if (!empty($existing)) {
             service_return(['success' => false, 'data' => [], 'message' => 'El nombre de usuario ya existe en el sistema']);
@@ -645,8 +774,7 @@ class AgronomoController extends ControllerBase
             'date_crea'   => date('Y-m-d H:i:s'),
         ];
 
-        $sql = crearSentenciaInsert(['tabla' => 'user', 'conten' => $new_user]);
-        $a->executeScript(['sql' => $sql]);
+        $this->preparedInsert(['tabla' => 'user', 'conten' => $new_user]);
 
         $new_user['temp_pass'] = $temp_pass;
         service_return(['data' => $new_user, 'message' => 'Técnico creado con éxito!']);
@@ -669,8 +797,7 @@ class AgronomoController extends ControllerBase
         $sets['date_modify']  = date('Y-m-d H:i:s');
 
         $where['id'] = $data['id'];
-        $sql = crearSentenciaUpdate(['tabla' => 'user', 'sets' => $sets, 'where' => $where]);
-        $a->executeScript(['sql' => $sql]);
+        $this->preparedUpdate(['tabla' => 'user', 'sets' => $sets, 'where' => $where]);
 
         service_return(['data' => $data['id'], 'message' => 'Técnico actualizado con éxito!']);
     }
@@ -915,15 +1042,13 @@ class AgronomoController extends ControllerBase
         // JSON del dispositivo), así que se busca y guarda por usuario_id
         // usando ese valor en vez del id que mandó el cliente.
         $where['usuario_id'] = $data['created_by'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'configuracion_usuario', 'where' => $where]);
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'configuracion_usuario', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['id'] = $data['created_by'];
             $data['usuario_id'] = $data['created_by'];
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'configuracion_usuario', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'configuracion_usuario', 'conten' => $data]);
             $msg = 'Las configuraciones creó con éxito!';
         } else {
 
@@ -942,10 +1067,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['usuario_id'] = $data['created_by'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'configuracion_usuario', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'configuracion_usuario', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'Las configuraciones editó con éxito!';
         }
 
@@ -979,13 +1101,11 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'visita_detalles_recomendaciones', 'where' => $where]);
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'visita_detalles_recomendaciones', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'visita_detalles_recomendaciones', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'visita_detalles_recomendaciones', 'conten' => $data]);
             $msg = 'La recomendacion de visita por lote se creó con éxito!';
         } else {
 
@@ -1002,10 +1122,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'visita_detalles_recomendaciones', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'visita_detalles_recomendaciones', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'La recomendacion de visita por lote se editó con éxito!';
         }
 
@@ -1035,13 +1152,11 @@ class AgronomoController extends ControllerBase
             if ($insumoId !== '') $this->assertActiveMobileReference('insumos', $insumoId, 'insumo');
         }
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'visita_detalles_formulas', 'where' => $where]);
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'visita_detalles_formulas', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'visita_detalles_formulas', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'visita_detalles_formulas', 'conten' => $data]);
             $msg = 'La formula de visita por lote se creó con éxito!';
         } else {
 
@@ -1064,11 +1179,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'visita_detalles_formulas', 'sets' => $data_query, 'where' => $data_where]);
-
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'visita_detalles_formulas', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'La formula de visita por lote se editó con éxito!';
         }
 
@@ -1106,14 +1217,11 @@ class AgronomoController extends ControllerBase
         $a = $this->model;
         if ((string)($data['voided'] ?? '1') !== '0') $this->assertMobileLaborUsable(trim((string)($data['labor_id'] ?? '')));
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'visita_detalles_actividades', 'where' => $where]);
-
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'visita_detalles_actividades', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'visita_detalles_actividades', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'visita_detalles_actividades', 'conten' => $data]);
             $msg = 'La actividad de visita por lote se creó con éxito!';
         } else {
 
@@ -1129,10 +1237,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'visita_detalles_actividades', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'visita_detalles_actividades', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'La actividad de visita por lote se editó con éxito!';
         }
 
@@ -1156,9 +1261,7 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'visita_detalles_hallazgos', 'where' => $where]);
-
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'visita_detalles_hallazgos', 'where' => $where]);
 
         if (empty($data_select)) {
 
@@ -1174,8 +1277,7 @@ class AgronomoController extends ControllerBase
             }
 
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'visita_detalles_hallazgos', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'visita_detalles_hallazgos', 'conten' => $data]);
             $msg = 'Hallazgos se creó con éxito!';
         } else {
 
@@ -1208,10 +1310,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'visita_detalles_hallazgos', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'visita_detalles_hallazgos', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'Hallazgos se editó con éxito!';
         }
 
@@ -1249,14 +1348,11 @@ class AgronomoController extends ControllerBase
             );
         }
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'visita_detalles_lote', 'where' => $where]);
-
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'visita_detalles_lote', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'visita_detalles_lote', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'visita_detalles_lote', 'conten' => $data]);
             $msg = 'El detalle de visita por lote se creó con éxito!';
         } else {
 
@@ -1276,10 +1372,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'visita_detalles_lote', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'visita_detalles_lote', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'El detalle de visita por lote se editó con éxito!';
         }
 
@@ -1304,36 +1397,51 @@ class AgronomoController extends ControllerBase
         $a = $this->model;
         if ((string)($data['voided'] ?? '1') !== '0') $this->assertActiveMobileReference('fincas', trim((string)($data['finca_id'] ?? '')), 'finca');
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'visitas_tecnicas', 'where' => $where]);
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'visitas_tecnicas', 'where' => $where]);
 
+        // Columnas explícitas y consulta preparada. Antes se insertaba el JSON
+        // completo del dispositivo con crearSentenciaInsert, que convierte
+        // null en '' : finalizada_at quedaba como 0000-00-00 y, al volver a
+        // descargar, la app veía la visita como finalizada sin firma.
+        // finalizada_at nunca se acepta del dispositivo: solo la fija
+        // saveVisitaFirma.
+        $nullable = static function ($value) {
+            return $value === null || trim((string)$value) === '' ? null : $value;
+        };
+        $params = [
+            ':id'=>$data['id'],
+            ':finca'=>$data['finca_id'],
+            ':fecha'=>$data['fecha'],
+            ':descripcion'=>$data['descripcion'] ?? null,
+            ':observacion'=>$data['observacion'] ?? null,
+            ':lat'=>$nullable($data['latitude'] ?? null),
+            ':lng'=>$nullable($data['longitude'] ?? null),
+            ':accuracy'=>$nullable($data['location_accuracy'] ?? null),
+            ':captured'=>$nullable($data['location_captured_at'] ?? null),
+            ':voided'=>$data['voided'],
+            ':created'=>$data['created_at'],
+            ':updated'=>$data['updated_at'],
+            ':actor'=>$data['created_by'],
+        ];
         if (empty($data_select)) {
-            $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'visitas_tecnicas', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $a->executePrepared(
+                "INSERT INTO visitas_tecnicas
+                 (id,finca_id,fecha,descripcion,observacion,latitude,longitude,location_accuracy,
+                  location_captured_at,sync,voided,created_at,updated_at,created_by)
+                 VALUES (:id,:finca,:fecha,:descripcion,:observacion,:lat,:lng,:accuracy,
+                  :captured,'1',:voided,:created,:updated,:actor)",
+                $params
+            );
             $msg = 'La visita se creó con éxito!';
         } else {
-
-            $data_query['finca_id'] = $data['finca_id'];
-            $data_query['fecha'] = $data['fecha'];
-            $data_query['descripcion'] = $data['descripcion'];
-            $data_query['observacion'] = $data['observacion'];
-            $data_query['latitude'] = $data['latitude'] ?? null;
-            $data_query['longitude'] = $data['longitude'] ?? null;
-            $data_query['location_accuracy'] = $data['location_accuracy'] ?? null;
-            $data_query['location_captured_at'] = $data['location_captured_at'] ?? null;
-            $data_query['sync'] = '1';
-            $data_query['voided'] = $data['voided'];
-            $data_query['created_at'] = $data['created_at'];
-            $data_query['updated_at'] = $data['updated_at'];
-            $data_query['created_by'] = $data['created_by'];
-
-            $data_where['id'] = $data['id'];
-
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'visitas_tecnicas', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $a->executePrepared(
+                "UPDATE visitas_tecnicas SET finca_id=:finca,fecha=:fecha,descripcion=:descripcion,
+                  observacion=:observacion,latitude=:lat,longitude=:lng,location_accuracy=:accuracy,
+                  location_captured_at=:captured,sync='1',voided=:voided,created_at=:created,
+                  updated_at=:updated,created_by=:actor
+                 WHERE id=:id",
+                $params
+            );
             $msg = 'La visita se editó con éxito!';
         }
 
@@ -2275,14 +2383,11 @@ class AgronomoController extends ControllerBase
 
 
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'recomendaciones', 'where' => $where]);
-
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'recomendaciones', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'recomendaciones', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'recomendaciones', 'conten' => $data]);
             $msg = 'La recomendación se creó con éxito!';
         } else {
 
@@ -2295,10 +2400,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'recomendaciones', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'recomendaciones', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'La recomendación se editó con éxito!';
         }
 
@@ -2311,8 +2413,7 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['1'] = '1';
-        $sql_ = crearSentenciaSelect(['tabla' => 'recomendaciones', 'where' => $where]);
-        $data_load = $a->executeScript(['sql' => $sql_]);
+        $data_load = $this->preparedSelect(['tabla' => 'recomendaciones', 'where' => $where]);
 
         service_return(['data' => $data_load, 'message' => 'El listado de recomendaciones se envia con éxito!']);
     }
@@ -2334,14 +2435,11 @@ class AgronomoController extends ControllerBase
         unset($data['categoria_labor_id']);
 
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'labores', 'where' => $where]);
-
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'labores', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'labores', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'labores', 'conten' => $data]);
             $msg = 'La labor se creó con éxito!';
         } else {
 
@@ -2356,10 +2454,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'labores', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'labores', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'La labor se editó con éxito!';
         }
 
@@ -2376,8 +2471,7 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['1'] = '1';
-        $sql_ = crearSentenciaSelect(['tabla' => 'labores', 'where' => $where]);
-        $data_load = $a->executeScript(['sql' => $sql_]);
+        $data_load = $this->preparedSelect(['tabla' => 'labores', 'where' => $where]);
 
         service_return(['data' => $data_load, 'message' => 'El listado de labores se envia con éxito!']);
     }
@@ -2398,13 +2492,11 @@ class AgronomoController extends ControllerBase
         }
 
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'formulas_detalle', 'where' => $where]);
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'formulas_detalle', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'formulas_detalle', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'formulas_detalle', 'conten' => $data]);
             $msg = 'El detalle formula se creó con éxito!';
         } else {
 
@@ -2421,11 +2513,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'formulas_detalle', 'sets' => $data_query, 'where' => $data_where]);
-
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'formulas_detalle', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'El detalle formula se editó con éxito!';
         }
 
@@ -2438,8 +2526,7 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['voided'] = '1';
-        $sql_ = crearSentenciaSelect(['tabla' => 'formulas_detalle', 'where' => $where]);
-        $data_load = $a->executeScript(['sql' => $sql_]);
+        $data_load = $this->preparedSelect(['tabla' => 'formulas_detalle', 'where' => $where]);
 
         service_return(['data' => $data_load, 'message' => 'El listado de detalle de formula se envia con éxito!']);
     }
@@ -2452,14 +2539,11 @@ class AgronomoController extends ControllerBase
 
 
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'formulas', 'where' => $where]);
-
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'formulas', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'formulas', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'formulas', 'conten' => $data]);
             $msg = 'La formula se creó con éxito!';
         } else {
 
@@ -2474,11 +2558,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'formulas', 'sets' => $data_query, 'where' => $data_where]);
-
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'formulas', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'La formula se editó con éxito!';
         }
 
@@ -2491,8 +2571,7 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['voided'] = '1';
-        $sql_ = crearSentenciaSelect(['tabla' => 'formulas', 'where' => $where]);
-        $data_load = $a->executeScript(['sql' => $sql_]);
+        $data_load = $this->preparedSelect(['tabla' => 'formulas', 'where' => $where]);
 
         service_return(['data' => $data_load, 'message' => 'El listado de formulas se envia con éxito!']);
     }
@@ -3540,13 +3619,11 @@ class AgronomoController extends ControllerBase
         $this->assertMobileCatalogNotReactivated('categorias_labor', trim((string)($data['id'] ?? '')), 'categoría de labor', $data);
 
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'categorias_labor', 'where' => $where]);
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'categorias_labor', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'categorias_labor', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'categorias_labor', 'conten' => $data]);
             $msg = 'La categoría de labor se creó con éxito!';
         } else {
 
@@ -3560,10 +3637,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'categorias_labor', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'categorias_labor', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'La categoría de labor se editó con éxito!';
         }
 
@@ -3576,8 +3650,7 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['1'] = '1';
-        $sql_ = crearSentenciaSelect(['tabla' => 'categorias_labor', 'where' => $where]);
-        $data_load = $a->executeScript(['sql' => $sql_]);
+        $data_load = $this->preparedSelect(['tabla' => 'categorias_labor', 'where' => $where]);
 
         service_return(['data' => $data_load, 'message' => 'El listado de categorías de labor se envia con éxito!']);
     }
@@ -4179,12 +4252,10 @@ class AgronomoController extends ControllerBase
 
 
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'lotes', 'where' => $where]);
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'lotes', 'where' => $where]);
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'lotes', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'lotes', 'conten' => $data]);
             $msg = 'El lote se creó con éxito!';
         } else {
 
@@ -4199,11 +4270,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'lotes', 'sets' => $data_query, 'where' => $data_where]);
-
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'lotes', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'El lote se editó con éxito!';
         }
 
@@ -4238,9 +4305,7 @@ class AgronomoController extends ControllerBase
 
 
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'fincas', 'where' => $where]);
-
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'fincas', 'where' => $where]);
 
         $tecnicoId = trim((string)($data['tecnico_id'] ?? ''));
         if ($tecnicoId !== '') {
@@ -4255,8 +4320,7 @@ class AgronomoController extends ControllerBase
         $tecnicoAnterior = trim((string)($data_select[0]['tecnico_id'] ?? ''));
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'fincas', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'fincas', 'conten' => $data]);
             $msg = 'La finca se creó con éxito!';
         } else {
 
@@ -4270,10 +4334,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'fincas', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'fincas', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'La finca se editó con éxito!';
         }
 
@@ -4331,14 +4392,11 @@ class AgronomoController extends ControllerBase
 
 
         $where['id'] = $data['id'];
-        $sql_data = crearSentenciaSelect(['tabla' => 'cultivos', 'where' => $where]);
-
-        $data_select = $a->executeScript(['sql' => $sql_data]);
+        $data_select = $this->preparedSelect(['tabla' => 'cultivos', 'where' => $where]);
 
         if (empty($data_select)) {
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'cultivos', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'cultivos', 'conten' => $data]);
             $msg = 'El cultivo se creó con éxito!';
         } else {
 
@@ -4352,10 +4410,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'cultivos', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'cultivos', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'El cultivo se editó con éxito!';
         }
 
@@ -4368,8 +4423,7 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['1'] = '1';
-        $sql_ = crearSentenciaSelect(['tabla' => 'cultivos', 'where' => $where]);
-        $data_load = $a->executeScript(['sql' => $sql_]);
+        $data_load = $this->preparedSelect(['tabla' => 'cultivos', 'where' => $where]);
 
         service_return(['data' => $data_load, 'message' => 'El listado de cultivos se envia con éxito!']);
     }
@@ -4381,14 +4435,12 @@ class AgronomoController extends ControllerBase
         $this->assertMobileCatalogNotReactivated('insumos', trim((string)($data['id'] ?? '')), 'insumo', $data);
 
         $where['id'] = $data['id'];
-        $sql_cliente = crearSentenciaSelect(['tabla' => 'insumos', 'where' => $where]);
-        $data_cliente = $a->executeScript(['sql' => $sql_cliente]);
+        $data_cliente = $this->preparedSelect(['tabla' => 'insumos', 'where' => $where]);
 
         if (empty($data_cliente)) {
 
             $data['sync'] = '1';
-            $sql = crearSentenciaInsert(['tabla' => 'insumos', 'conten' => $data]);
-            $a->executeScript(['sql' => $sql]);
+            $this->preparedInsert(['tabla' => 'insumos', 'conten' => $data]);
             $msg = 'El insumo se creó con éxito!';
         } else {
 
@@ -4403,10 +4455,7 @@ class AgronomoController extends ControllerBase
 
             $data_where['id'] = $data['id'];
 
-            $sql_mast = crearSentenciaUpdate(['tabla' => 'insumos', 'sets' => $data_query, 'where' => $data_where]);
-            $a->executeScript([
-                'sql' => $sql_mast
-            ]);
+            $this->preparedUpdate(['tabla' => 'insumos', 'sets' => $data_query, 'where' => $data_where]);
             $msg = 'El insumo se editó con éxito!';
         }
 
@@ -4419,8 +4468,7 @@ class AgronomoController extends ControllerBase
 
         $a = $this->model;
         $where['1'] = '1';
-        $sql_cliente = crearSentenciaSelect(['tabla' => 'insumos', 'where' => $where]);
-        $data_cliente = $a->executeScript(['sql' => $sql_cliente]);
+        $data_cliente = $this->preparedSelect(['tabla' => 'insumos', 'where' => $where]);
 
         service_return(['data' => $data_cliente, 'message' => 'El listado de insumos se envia con éxito!']);
     }

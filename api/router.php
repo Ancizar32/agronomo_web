@@ -181,7 +181,7 @@ final class AgronomoApiRouter
             $token = $this->bearerToken($data);
             $mobileUserId = $instance->authenticateMobileToken($token);
             if ($mobileUserId === null) {
-                $this->respond(false, 'Tu sesión móvil ya no está vigente. Inicia sesión nuevamente.', ['authentication_required'=>true], 401);
+                $this->respond(false, 'Tu sesión móvil ya no está vigente. Inicia sesión nuevamente.', ['authentication_required'=>true,'reason'=>$instance->mobileAuthFailureReason()], 401);
             }
             unset($data['_api_token']);
             if (!$instance->canMobileMutation($mobileUserId, 'saveAsignacionesFincasMobile', $data)) {
@@ -192,7 +192,7 @@ final class AgronomoApiRouter
             $token = $this->bearerToken($data);
             $mobileUserId = $instance->authenticateMobileToken($token);
             if ($mobileUserId === null) {
-                $this->respond(false, 'Tu sesión móvil ya no está vigente. Inicia sesión nuevamente.', ['authentication_required'=>true], 401);
+                $this->respond(false, 'Tu sesión móvil ya no está vigente. Inicia sesión nuevamente.', ['authentication_required'=>true,'reason'=>$instance->mobileAuthFailureReason()], 401);
             }
             $data['authenticated_user_id'] = $mobileUserId;
             $data['api_token'] = $token;
@@ -212,7 +212,7 @@ final class AgronomoApiRouter
             $token = $this->bearerToken($data);
             $mobileUserId = $instance->authenticateMobileToken($token);
             if ($mobileUserId === null) {
-                $this->respond(false, 'Tu sesión móvil ya no está vigente: pudo expirar o ser revocada. Inicia sesión nuevamente.', ['authentication_required'=>true], 401);
+                $this->respond(false, 'Tu sesión móvil ya no está vigente: pudo expirar o ser revocada. Inicia sesión nuevamente.', ['authentication_required'=>true,'reason'=>$instance->mobileAuthFailureReason()], 401);
             }
             unset($data['_api_token']);
             // La autoría nunca se acepta desde el JSON del dispositivo.

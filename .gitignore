@@ -13,5 +13,13 @@ __pycache__/
 !database/migrations/035_certificacion_documento_pdf.sql
 !database/rollbacks/035_certificacion_documento_pdf.sql
 
-# Documentos PDF de certificaciones subidos por los clientes
-uploads/certificaciones/
+!database/migrations/036_installation_id_tokens_mobile.sql
+!database/rollbacks/036_installation_id_tokens_mobile_down.sql
+!database/migrations/037_reparar_finalizada_at_vacia.sql
+
+# Archivos subidos por usuarios (imágenes de hallazgos, PDF de certificaciones,
+# plantillas de reportes). Son datos de clientes: nunca se versionan.
+# Se conservan solo los .gitkeep para que las carpetas existan al desplegar.
+uploads/**
+!uploads/*/
+!uploads/*/.gitkeep

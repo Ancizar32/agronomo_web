@@ -2411,9 +2411,7 @@ class AgronomoController extends ControllerBase
     public function getRecomendaciones()
     {
 
-        $a = $this->model;
-        $where['1'] = '1';
-        $data_load = $this->preparedSelect(['tabla' => 'recomendaciones', 'where' => $where]);
+        $data_load = $this->model->queryPrepared("SELECT * FROM `recomendaciones`");
 
         service_return(['data' => $data_load, 'message' => 'El listado de recomendaciones se envia con éxito!']);
     }
@@ -2469,9 +2467,7 @@ class AgronomoController extends ControllerBase
     public function getLabores()
     {
 
-        $a = $this->model;
-        $where['1'] = '1';
-        $data_load = $this->preparedSelect(['tabla' => 'labores', 'where' => $where]);
+        $data_load = $this->model->queryPrepared("SELECT * FROM `labores`");
 
         service_return(['data' => $data_load, 'message' => 'El listado de labores se envia con éxito!']);
     }
@@ -3648,9 +3644,7 @@ class AgronomoController extends ControllerBase
     public function getCategoriasLabor()
     {
 
-        $a = $this->model;
-        $where['1'] = '1';
-        $data_load = $this->preparedSelect(['tabla' => 'categorias_labor', 'where' => $where]);
+        $data_load = $this->model->queryPrepared("SELECT * FROM `categorias_labor`");
 
         service_return(['data' => $data_load, 'message' => 'El listado de categorías de labor se envia con éxito!']);
     }
@@ -4421,9 +4415,7 @@ class AgronomoController extends ControllerBase
     public function getCultivos($data)
     {
 
-        $a = $this->model;
-        $where['1'] = '1';
-        $data_load = $this->preparedSelect(['tabla' => 'cultivos', 'where' => $where]);
+        $data_load = $this->model->queryPrepared("SELECT * FROM `cultivos`");
 
         service_return(['data' => $data_load, 'message' => 'El listado de cultivos se envia con éxito!']);
     }
@@ -4466,9 +4458,7 @@ class AgronomoController extends ControllerBase
     public function getInsumos($data)
     {
 
-        $a = $this->model;
-        $where['1'] = '1';
-        $data_cliente = $this->preparedSelect(['tabla' => 'insumos', 'where' => $where]);
+        $data_cliente = $this->model->queryPrepared("SELECT * FROM `insumos`");
 
         service_return(['data' => $data_cliente, 'message' => 'El listado de insumos se envia con éxito!']);
     }
